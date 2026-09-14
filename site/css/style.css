@@ -4,8 +4,9 @@
   --line: #e2e5e9;
   --bg: #f7f8fa;
   --card: #ffffff;
-  --accent: #b3251e; /* CD Commerce-ish red, adjust to real brand color */
-  --accent-dark: #8c1c17;
+  --navy: #111729;       /* CD Commerce logo/badge navy */
+  --accent: #cc7c5e;      /* CD Commerce brand terracotta/orange */
+  --accent-dark: #a8624a;
   --ok: #1f7a3f;
   --radius: 10px;
 }
@@ -29,12 +30,19 @@ body {
 }
 .brand { display: flex; align-items: center; gap: 14px; }
 .brand-mark {
-  background: var(--accent);
-  color: white;
-  font-weight: 700;
-  padding: 8px 12px;
-  border-radius: 8px;
-  letter-spacing: 0.5px;
+  background: var(--navy);
+  border: 2px solid var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+}
+.brand-mark img {
+  width: 24px;
+  height: 24px;
+  display: block;
 }
 .brand h1 { margin: 0; font-size: 18px; }
 .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
@@ -92,7 +100,7 @@ main#app { max-width: 960px; margin: 20px auto 60px; padding: 0 32px; }
   cursor: pointer;
   transition: border-color .15s, background .15s;
 }
-.dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: #fff6f5; }
+.dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: #fdf3ef; }
 
 .status { margin-top: 12px; font-size: 13.5px; }
 .status.error { color: #b3251e; }
@@ -139,8 +147,11 @@ input, textarea {
   font-weight: 400;
   color: var(--ink);
   resize: vertical;
+  width: 100%;
 }
 input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.textarea-toolbar { margin-top: 6px; display: flex; gap: 8px; }
 
 h3 { margin-top: 28px; margin-bottom: 10px; font-size: 15px; }
 

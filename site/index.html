@@ -4,12 +4,17 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CD Commerce | Product Brief Generator</title>
+<link rel="icon" href="img/favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="img/favicon-16.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="img/favicon-192.png" />
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png" />
 <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark">CDC</span>
+      <span class="brand-mark"><img src="img/logo-icon.png" alt="CD Commerce" /></span>
       <div>
         <h1>Product Brief Generator</h1>
         <p class="subtitle">PD Sheet &rarr; Product Brief, in minutes not days</p>
@@ -66,9 +71,13 @@
       <div class="form-grid">
         <label>Article No. <input id="f_articleNo" type="text" /></label>
         <label>Item / Product Name <input id="f_item" type="text" /></label>
-        <label>Material (summary) <input id="f_material" type="text" /></label>
         <label>Color <input id="f_color" type="text" /></label>
       </div>
+
+      <label class="block">Material (summary)
+        <textarea id="f_material" rows="3"></textarea>
+        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_material">+ Add bullet</button></div>
+      </label>
 
       <label class="block">Description
         <textarea id="f_description" rows="4"></textarea>
@@ -76,10 +85,12 @@
 
       <label class="block">Product Inclusions
         <textarea id="f_inclusions" rows="3"></textarea>
+        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_inclusions">+ Add bullet</button></div>
       </label>
 
       <label class="block">Material &amp; Workmanship Instructions
         <textarea id="f_materialInstructions" rows="10"></textarea>
+        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_materialInstructions">+ Add bullet</button></div>
       </label>
 
       <h3>Technical Specifications</h3>
@@ -88,6 +99,7 @@
 
       <label class="block">Packaging
         <textarea id="f_packaging" rows="6"></textarea>
+        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_packaging">+ Add bullet</button></div>
       </label>
 
       <h3>Typical Production Mistakes / QC Acceptable Limits</h3>
@@ -97,6 +109,7 @@
       <label class="block">Known Market Complaints &amp; Preventive Actions
         <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Pulled from the PD sheet's review analysis (competitor complaints ranked by mention count) — brief the supplier on these upfront so they're designed out, not caught at QC.</span>
         <textarea id="f_knownIssues" rows="8"></textarea>
+        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_knownIssues">+ Add bullet</button></div>
       </label>
 
       <div class="nav-buttons">
@@ -123,6 +136,7 @@
 
       <label class="block">Compliance &amp; Test Reports
         <textarea id="f_compliance" rows="8" placeholder="e.g. Test Report No. ... demonstrating compliance to EN 60335-1:2012..."></textarea>
+        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_compliance">+ Add bullet</button></div>
       </label>
 
       <label class="block">Approval Contacts (comma-separated names/emails)
@@ -140,6 +154,7 @@
       <label class="block">Quality Inspection Notes
         <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Product-specific QC instructions from the PD sheet (e.g. a load test) — carried into the Pre-QC Check as a custom test.</span>
         <textarea id="f_qualityInspectionNotes" rows="4"></textarea>
+        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_qualityInspectionNotes">+ Add bullet</button></div>
       </label>
 
       <div class="nav-buttons">
@@ -223,7 +238,7 @@
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
+  <script src="https://unpkg.com/docx@8.5.0/build/index.iife.js"></script>
   <script src="js/xlsx-parser.js"></script>
   <script src="js/state.js"></script>
   <script src="js/storage.js"></script>

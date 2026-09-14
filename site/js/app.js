@@ -5,6 +5,21 @@
 
   const B = () => PBState.brief;
 
+  // ---------- Bullet-list helper buttons ----------
+  // Generic: any button with data-bullet-for="<textareaId>" appends a new
+  // bullet line to that textarea (or starts one if the field is empty),
+  // then focuses it so the person can type immediately.
+  $$("[data-bullet-for]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const ta = document.getElementById(btn.dataset.bulletFor);
+      if (!ta) return;
+      const needsNewline = ta.value.length > 0 && !ta.value.endsWith("\n");
+      ta.value += (needsNewline ? "\n" : "") + "• ";
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+    });
+  });
+
   // ---------- Step navigation ----------
   function goToStep(n) {
     $$(".panel").forEach((p) => p.classList.add("hidden"));
