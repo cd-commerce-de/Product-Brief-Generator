@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CD Commerce | Product Brief Generator</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">CDC</span>
+      <div>
+        <h1>Product Brief Generator</h1>
+        <p class="subtitle">PD Sheet &rarr; Product Brief, in minutes not days</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btnLoadVersion" class="btn btn-ghost">Open saved brief</button>
+      <button id="btnNew" class="btn btn-ghost">New brief</button>
+    </div>
+  </header>
+
+  <nav class="steps" id="stepsNav">
+    <div class="step active" data-step="1"><span>1</span> Import PD Sheet</div>
+    <div class="step" data-step="2"><span>2</span> Review &amp; Edit</div>
+    <div class="step" data-step="3"><span>3</span> PO &amp; Compliance</div>
+    <div class="step" data-step="4"><span>4</span> Export &amp; Save</div>
+    <div class="step" data-step="5"><span>5</span> Downstream Docs</div>
+  </nav>
+
+  <main id="app">
+
+    <!-- STEP 1: IMPORT -->
+    <section class="panel" id="panel-1">
+      <h2>Import a Product Development Sheet</h2>
+      <p class="hint">Built for the <strong>current (post-optimized) PD sheet</strong> — one <code>Final Product
+        Specifications</code> tab with target specs and competitor comparison columns baked in from the start.
+        The app reads <code>Overview</code> + <code>Final Product Specifications</code> + <code>Quality Inspection
+        PO Information</code>, pulling out our target spec (not the competitor columns) from every feature row,
+        plus the review-analysis table as "known market complaints." Older two-stage PD sheets (a separate
+        <code>Initial Product Specifications</code> tab) are still supported as a legacy fallback.</p>
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".xlsx" hidden />
+        <p><strong>Click to choose</strong> or drag a PD sheet .xlsx here</p>
+        <p class="hint">Nothing leaves your browser — parsing happens locally.</p>
+      </div>
+      <div id="importStatus" class="status"></div>
+
+      <div id="importPreview" class="hidden">
+        <h3>Detected fields</h3>
+        <div id="overviewPreview" class="kv-grid"></div>
+        <h3>Detected sections</h3>
+        <div id="sectionsPreview" class="section-list"></div>
+        <button id="btnContinueToReview" class="btn btn-primary">Continue to Review &amp; Edit &rarr;</button>
+      </div>
+    </section>
+
+    <!-- STEP 2: REVIEW & EDIT -->
+    <section class="panel hidden" id="panel-2">
+      <h2>Review &amp; Edit Product Brief Content</h2>
+      <p class="hint">This maps to the standard Product Brief layout. Everything here is editable — the parser gets you
+        90% of the way, you fine-tune the rest.</p>
+
+      <div class="form-grid">
+        <label>Article No. <input id="f_articleNo" type="text" /></label>
+        <label>Item / Product Name <input id="f_item" type="text" /></label>
+        <label>Material (summary) <input id="f_material" type="text" /></label>
+        <label>Color <input id="f_color" type="text" /></label>
+      </div>
+
+      <label class="block">Description
+        <textarea id="f_description" rows="4"></textarea>
+      </label>
+
+      <label class="block">Product Inclusions
+        <textarea id="f_inclusions" rows="3"></textarea>
+      </label>
+
+      <label class="block">Material &amp; Workmanship Instructions
+        <textarea id="f_materialInstructions" rows="10"></textarea>
+      </label>
+
+      <h3>Technical Specifications</h3>
+      <div id="techSpecTable" class="editable-table"></div>
+      <button class="btn btn-small" id="btnAddTechSpec">+ Add spec row</button>
+
+      <label class="block">Packaging
+        <textarea id="f_packaging" rows="6"></textarea>
+      </label>
+
+      <h3>Typical Production Mistakes / QC Acceptable Limits</h3>
+      <div id="qcTable" class="editable-table"></div>
+      <button class="btn btn-small" id="btnAddQcRow">+ Add QC row</button>
+
+      <label class="block">Known Market Complaints &amp; Preventive Actions
+        <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Pulled from the PD sheet's review analysis (competitor complaints ranked by mention count) — brief the supplier on these upfront so they're designed out, not caught at QC.</span>
+        <textarea id="f_knownIssues" rows="8"></textarea>
+      </label>
+
+      <div class="nav-buttons">
+        <button class="btn btn-ghost" data-back="1">&larr; Back</button>
+        <button class="btn btn-primary" data-next="3">Continue to PO &amp; Compliance &rarr;</button>
+      </div>
+    </section>
+
+    <!-- STEP 3: PO & COMPLIANCE -->
+    <section class="panel hidden" id="panel-3">
+      <h2>PO &amp; Compliance Details</h2>
+      <p class="hint">These fields aren't in the PD sheet — they come from the purchase order / supplier setup.</p>
+
+      <div class="form-grid">
+        <label>Date <input id="f_date" type="text" placeholder="MM.DD.YYYY" /></label>
+        <label>PO Number <input id="f_poNumber" type="text" /></label>
+        <label>Supplier Company Name <input id="f_supplierName" type="text" /></label>
+        <label>Supplier Contact Person <input id="f_supplierContact" type="text" /></label>
+        <label>Supplier Phone/Fax <input id="f_supplierPhone" type="text" /></label>
+      </div>
+      <label class="block">Supplier Address
+        <textarea id="f_supplierAddress" rows="2"></textarea>
+      </label>
+
+      <label class="block">Compliance &amp; Test Reports
+        <textarea id="f_compliance" rows="8" placeholder="e.g. Test Report No. ... demonstrating compliance to EN 60335-1:2012..."></textarea>
+      </label>
+
+      <label class="block">Approval Contacts (comma-separated names/emails)
+        <textarea id="f_approvalContacts" rows="2"></textarea>
+      </label>
+
+      <h3>Quality Inspection Setup <span class="hint">(feeds the Pre-inspection Briefing Form &amp; Pre-QC Check in Step 5)</span></h3>
+      <div class="form-grid">
+        <label>Brand Name <input id="f_brandName" type="text" placeholder="e.g. Heimfleiss" /></label>
+        <label># Samples to Inspect <input id="f_sampleCount" type="text" placeholder="e.g. 10 pcs" /></label>
+        <label>Pre-QC (in-house) Date <input id="f_preQcDate" type="text" placeholder="MM.DD.YYYY" /></label>
+        <label>3rd Party Inspection Date <input id="f_inspectionDate" type="text" placeholder="MM.DD.YYYY" /></label>
+      </div>
+
+      <label class="block">Quality Inspection Notes
+        <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Product-specific QC instructions from the PD sheet (e.g. a load test) — carried into the Pre-QC Check as a custom test.</span>
+        <textarea id="f_qualityInspectionNotes" rows="4"></textarea>
+      </label>
+
+      <div class="nav-buttons">
+        <button class="btn btn-ghost" data-back="2">&larr; Back</button>
+        <button class="btn btn-primary" data-next="4">Continue to Export &rarr;</button>
+      </div>
+    </section>
+
+    <!-- STEP 4: EXPORT -->
+    <section class="panel hidden" id="panel-4">
+      <h2>Export &amp; Save</h2>
+      <div class="form-grid">
+        <label>Version <input id="f_version" type="text" placeholder="e.g. 1.0" /></label>
+        <label>Save label <input id="f_versionLabel" type="text" placeholder="optional note, e.g. 'post-supplier-review'" /></label>
+      </div>
+
+      <div class="export-actions">
+        <button id="btnExportDocx" class="btn btn-primary">⬇ Download .docx (Google Docs compatible)</button>
+        <button id="btnSaveVersion" class="btn btn-secondary">💾 Save this version locally</button>
+        <button id="btnExportJson" class="btn btn-ghost">⬇ Export raw data (.json)</button>
+      </div>
+      <div id="exportStatus" class="status"></div>
+
+      <h3>Saved versions (this browser)</h3>
+      <div id="versionList" class="version-list"></div>
+
+      <div class="nav-buttons">
+        <button class="btn btn-ghost" data-back="3">&larr; Back</button>
+        <button class="btn btn-primary" data-next="5">Continue to Downstream Docs &rarr;</button>
+      </div>
+    </section>
+
+    <!-- STEP 5: DOWNSTREAM DOCUMENTS -->
+    <section class="panel hidden" id="panel-5">
+      <h2>Downstream Documents</h2>
+      <p class="hint">Generated from the same brief data — Product Name, PO Number, supplier, inspection setup, and
+        QC notes carry straight over. Each downloads as .xlsx, compatible with Google Sheets
+        (Drive → right-click → Open with → Google Sheets).</p>
+
+      <div class="section-list">
+        <div class="section-item" style="cursor:default;">
+          <strong>Pre-inspection Briefing Form</strong>
+          <p class="hint">Standard pre-shipment inspection checklist (package completeness, function tests,
+            measurement, visual inspection, packaging) with your product/PO/supplier details filled in.</p>
+          <button id="btnExportPreInspection" class="btn btn-primary" style="margin-top:8px;">⬇ Download Pre-inspection Briefing Form</button>
+        </div>
+        <div class="section-item" style="cursor:default;">
+          <strong>Pre-QC (Quality Control) Check</strong>
+          <p class="hint">Standard QC test/result sheet, plus a custom test row built from your Quality Inspection
+            Notes if you added any in Step 3.</p>
+          <button id="btnExportPreQC" class="btn btn-primary" style="margin-top:8px;">⬇ Download Pre-QC Check</button>
+        </div>
+        <div class="section-item" style="cursor:default;">
+          <strong>Marketing Guide Sheet</strong>
+          <p class="hint">Pre-fills Item, Brand, Description, Article No., Material, and seeds "Important Features
+            to Highlight" from the brief's USPs/ESPs. Benefit copy and target-group sections are left as prompts
+            for the marketing team to complete — that's original copywriting, not something to auto-generate from
+            spec data.</p>
+          <button id="btnExportMarketing" class="btn btn-primary" style="margin-top:8px;">⬇ Download Marketing Guide Sheet</button>
+        </div>
+      </div>
+      <div id="downstreamStatus" class="status"></div>
+
+      <div class="nav-buttons">
+        <button class="btn btn-ghost" data-back="4">&larr; Back</button>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="modal hidden" id="versionModal">
+    <div class="modal-box">
+      <h3>Open a saved brief</h3>
+      <div id="versionModalList" class="version-list"></div>
+      <button class="btn btn-ghost" id="btnCloseModal">Close</button>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Product Brief Generator · CD Commerce GmbH · data stays in your browser (local storage), nothing is uploaded to a server.</p>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
+  <script src="js/xlsx-parser.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/docx-generator.js"></script>
+  <script src="js/xlsx-generators.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
