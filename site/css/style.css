@@ -5,8 +5,8 @@
   --bg: #f7f8fa;
   --card: #ffffff;
   --navy: #111729;       /* CD Commerce logo/badge navy */
-  --accent: #cc7c5e;      /* CD Commerce brand terracotta/orange */
-  --accent-dark: #a8624a;
+  --accent: #d37f3f;      /* CD Commerce brand orange, sampled from the official header banner asset */
+  --accent-dark: #b3692f;
   --ok: #1f7a3f;
   --radius: 10px;
 }

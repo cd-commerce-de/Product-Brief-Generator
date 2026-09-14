@@ -74,6 +74,21 @@ Google Docs**, or **File → Open** from within Docs), and in Word. This keeps
 the app fully static and deployable to GitHub Pages/Vercel with zero backend.
 Google Drive/Docs API integration is a natural Phase 2 (see below).
 
+### Document format
+
+The generated Product Brief matches CD Commerce's official template
+(`CD_Commerce_-_Product_Brief_Template.docx`): landscape A4, the branded
+orange header banner (`site/img/header-banner.jpg`, fetched at export time
+and embedded in the page header so it repeats on every page) instead of a
+text title, page numbers in the footer, and this section order: Date/PO
+Number → To: (supplier) → Article info → Product Individualization (with
+per-component sub-rows, split automatically from the Material & Workmanship
+Instructions field) → Known Market Complaints / Quality Inspection Notes →
+II. Compliance → III. Typical Production Mistakes/QC → sign-off. If the
+template changes again, `site/js/docx-generator.js` is the only file that
+needs to change — swap `site/img/header-banner.jpg` for a new banner image
+and adjust the section order/labels to match.
+
 ## Project structure
 
 ```
