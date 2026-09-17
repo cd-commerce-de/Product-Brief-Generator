@@ -56,6 +56,14 @@
       <div id="importPreview" class="hidden">
         <h3>Detected fields</h3>
         <div id="overviewPreview" class="kv-grid"></div>
+        <div id="imagesPreviewWrap" class="hidden">
+          <h3>Detected images</h3>
+          <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-bottom:10px;">
+            <input type="checkbox" id="f_includeImages" checked style="width:auto;" />
+            Include these images in the exported Product Brief
+          </label>
+          <div id="imagesPreview" class="image-gallery"></div>
+        </div>
         <h3>Detected sections</h3>
         <div id="sectionsPreview" class="section-list"></div>
         <button id="btnContinueToReview" class="btn btn-primary">Continue to Review &amp; Edit &rarr;</button>
@@ -238,8 +246,10 @@
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://unpkg.com/docx@8.5.0/build/index.iife.js"></script>
   <script src="js/xlsx-parser.js"></script>
+  <script src="js/xlsx-images.js"></script>
   <script src="js/state.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/docx-generator.js"></script>

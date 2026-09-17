@@ -14,6 +14,8 @@
       qcRows: [], // [{parameter, acceptable, notAcceptable}]
       knownIssues: "", // known field complaints + preventive specs, from PD review analysis
       qualityInspectionNotes: "", // per-SKU QC test notes from the PD sheet
+      images: { hero: [], feature: [] }, // extracted from the PD sheet, see xlsx-images.js
+      includeImages: true,
       date: "",
       poNumber: "",
       supplierName: "",

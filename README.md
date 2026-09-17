@@ -43,7 +43,9 @@ post-optimized layout; that's what this tool is optimized for.
 ## What it does today
 
 1. **Import** — upload a PD sheet `.xlsx`. Reads `Overview`, `Final Product
-   Specifications`, and `Quality Inspection/PO Information`.
+   Specifications`, and `Quality Inspection/PO Information` — plus any
+   embedded product photos on the `Overview` and spec tabs (see "Images"
+   below).
 2. **Review & Edit** — pre-fills Article No., Item, Material, Color,
    Inclusions, Material & Workmanship Instructions, Technical Specifications,
    Packaging, and Known Market Complaints & Preventive Actions. You review
@@ -65,6 +67,35 @@ post-optimized layout; that's what this tool is optimized for.
      from the brief's USPs/ESPs; benefit copy and target-group sections are
      left as clearly marked `TODO` prompts, since that's original
      copywriting a machine shouldn't be inventing on your behalf.
+
+### Images
+
+PD sheets carry embedded product photos that SheetJS (the library used for
+reading cell data) can't see — it doesn't expose embedded drawings. So
+`js/xlsx-images.js` reads the `.xlsx` a second way: as a raw zip, walking the
+OOXML relationship chain (`workbook.xml` → sheet → its drawing → each
+picture) by hand to find every embedded image and which sheet/row it's
+anchored to.
+
+- Images on the **Overview** tab (next to "Product Images:") become the
+  **hero product image(s)**, shown right under the Article info table.
+- Images on the **Final/Initial Product Specifications** tab become
+  **reference images**, shown in their own row inside the Product
+  Individualization table.
+- Every image is downscaled client-side (canvas, max 700px on the long edge,
+  JPEG ~72% quality) before use — PD sheet photos are often 1-2MB each at
+  full camera resolution, which is both too large to embed cleanly in a
+  `.docx` and too much to keep in `localStorage` for saved versions.
+- Step 1 shows a thumbnail gallery of everything found, with a single
+  "Include these images" checkbox (Step 5's exported `.docx` and the
+  downstream `.xlsx` docs respect it) — there's no per-image picker; if a
+  sheet has images that don't belong in the brief, uncheck the box and skip
+  them all for that import.
+- This doesn't attempt to recreate every image in a fully custom illustrated
+  brief (close-up QC photos, packaging carton diagrams, logo-placement
+  mockups) — only what actually exists as embedded pictures in the PD sheet
+  itself. Anything beyond that is still a manual step in Word/Google Docs
+  after export.
 
 ### Why `.docx` and not Google Docs directly
 Generating a native Google Doc requires a signed-in Google API call (OAuth),
@@ -98,6 +129,7 @@ product-brief-app/
 │   ├── css/style.css
 │   └── js/
 │       ├── xlsx-parser.js      # PD-sheet -> structured data parser
+│       ├── xlsx-images.js      # extracts embedded PD-sheet images (raw zip parse)
 │       ├── state.js            # in-memory brief state
 │       ├── storage.js          # localStorage version tracking
 │       ├── docx-generator.js   # builds the Product Brief .docx

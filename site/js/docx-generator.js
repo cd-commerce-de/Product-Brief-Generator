@@ -122,6 +122,22 @@
     return s;
   }
 
+  // Lays out a set of already-downscaled images (dataUrl + natural width/
+  // height from xlsx-images.js) inline at a fixed display width, preserving
+  // each one's own aspect ratio. Docx.js wraps multiple inline ImageRuns in
+  // one paragraph the same way inline text wraps, so this reads as a simple
+  // photo grid without needing a nested table.
+  function imageParagraphs(images, targetWidth) {
+    if (!images || !images.length) return [];
+    const children = [];
+    images.forEach((im, i) => {
+      const h = Math.max(1, Math.round(targetWidth * (im.height / im.width)));
+      children.push(new ImageRun({ data: im.dataUrl, transformation: { width: targetWidth, height: h } }));
+      if (i < images.length - 1) children.push(new TextRun({ text: "   " }));
+    });
+    return [new Paragraph({ children, spacing: { after: 150 } })];
+  }
+
   function dividerRow(label) {
     return new TableRow({
       children: [cell(p(label, { bold: true }), CONTENT_WIDTH, { shaded: true, columnSpan: 2 })],
@@ -164,6 +180,15 @@
         cell(multiline(brief.packaging), valueW),
       ],
     }));
+
+    if (brief.includeImages && brief.images && brief.images.feature && brief.images.feature.length) {
+      rows.push(new TableRow({
+        children: [
+          cell(p("Reference Images", { bold: true }), labelW, { shaded: true }),
+          cell(imageParagraphs(brief.images.feature, 130), valueW),
+        ],
+      }));
+    }
 
     return table([labelW, valueW], rows);
   }
@@ -256,6 +281,13 @@
     ]));
 
     children.push(p("", { after: 200 }));
+
+    if (brief.includeImages && brief.images && brief.images.hero && brief.images.hero.length) {
+      children.push(p("Product Image(s)", { bold: true, after: 100 }));
+      children.push(...imageParagraphs(brief.images.hero, 220));
+      children.push(p("", { after: 100 }));
+    }
+
     children.push(p("PRODUCT INDIVIDUALIZATION", { bold: true, after: 150 }));
     children.push(productIndividualizationTable(brief));
     children.push(p("", { after: 200 }));

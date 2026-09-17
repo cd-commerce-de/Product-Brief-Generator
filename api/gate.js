@@ -73,6 +73,11 @@ module.exports = (req, res) => {
     }
     const ext = path.extname(filePath);
     res.setHeader("Content-Type", MIME[ext] || "application/octet-stream");
+    // Never let the browser (or an intermediate cache) reuse a stale copy of
+    // the app's HTML/JS/CSS - this is a low-traffic internal tool, so the
+    // cost of always refetching is negligible, and it rules out the classic
+    // "I redeployed but the browser is still running old JS" confusion.
+    res.setHeader("Cache-Control", "no-store, must-revalidate");
     res.statusCode = 200;
     res.end(data);
   });

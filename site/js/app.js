@@ -72,13 +72,28 @@
     }
     setStatus("#importStatus", "Parsing…");
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      const buffer = e.target.result;
       try {
-        const parsed = PBParser.parseWorkbookFile(e.target.result);
+        const parsed = PBParser.parseWorkbookFile(buffer);
         applyParsedToState(parsed);
         renderImportPreview(parsed);
-        setStatus("#importStatus", `Parsed successfully (source tab: ${parsed.meta.specSource}).`, "ok");
+        setStatus("#importStatus", `Parsed successfully (source tab: ${parsed.meta.specSource}). Looking for images…`, "ok");
         $("#importPreview").classList.remove("hidden");
+
+        // Image extraction is a separate pass (SheetJS doesn't expose
+        // embedded drawings) and runs after the text parse so a slow/failed
+        // image extraction never blocks the fields the person actually needs.
+        try {
+          const images = await PBImages.extractImages(buffer);
+          B().images = images;
+          renderImagesPreview(images);
+          const total = images.hero.length + images.feature.length;
+          setStatus("#importStatus", `Parsed successfully (source tab: ${parsed.meta.specSource}). Found ${total} image${total === 1 ? "" : "s"}.`, "ok");
+        } catch (imgErr) {
+          console.error(imgErr);
+          setStatus("#importStatus", `Parsed successfully (source tab: ${parsed.meta.specSource}). Couldn't read images from this file.`, "ok");
+        }
       } catch (err) {
         console.error(err);
         setStatus("#importStatus", "Couldn't parse this file — is it a standard PD sheet .xlsx? " + err.message, "error");
@@ -86,6 +101,33 @@
     };
     reader.readAsArrayBuffer(file);
   }
+
+  function renderImagesPreview(images) {
+    const wrap = $("#imagesPreviewWrap");
+    const gallery = $("#imagesPreview");
+    gallery.innerHTML = "";
+    const all = [...images.hero.map((im) => ({ ...im, label: "Product image" })),
+                 ...images.feature.map((im) => ({ ...im, label: "Reference image" }))];
+    if (!all.length) {
+      wrap.classList.add("hidden");
+      return;
+    }
+    wrap.classList.remove("hidden");
+    all.forEach((im) => {
+      const fig = document.createElement("figure");
+      const img = document.createElement("img");
+      img.src = im.dataUrl;
+      const cap = document.createElement("figcaption");
+      cap.textContent = im.label;
+      fig.appendChild(img);
+      fig.appendChild(cap);
+      gallery.appendChild(fig);
+    });
+  }
+
+  $("#f_includeImages").addEventListener("change", (e) => {
+    B().includeImages = e.target.checked;
+  });
 
   function applyParsedToState(parsed) {
     const b = B();
