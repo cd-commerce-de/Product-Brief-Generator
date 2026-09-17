@@ -45,7 +45,6 @@ body {
   display: block;
 }
 .brand h1 { margin: 0; font-size: 18px; }
-.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .topbar-actions { display: flex; gap: 10px; }
 
 .steps {
