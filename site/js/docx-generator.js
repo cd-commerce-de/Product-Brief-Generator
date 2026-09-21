@@ -267,6 +267,7 @@
       ["To:", [p(brief.supplierName || "", { bold: true })]],
       ["", brief.supplierAddress || ""],
       ["", `Tel/Fax: ${brief.supplierPhone || ""}`],
+      ["", `Email: ${brief.supplierEmail || ""}`],
       ["", `Contact person: ${brief.supplierContact || ""}`],
     ], 15));
 
@@ -291,16 +292,6 @@
     children.push(p("PRODUCT INDIVIDUALIZATION", { bold: true, after: 150 }));
     children.push(productIndividualizationTable(brief));
     children.push(p("", { after: 200 }));
-
-    if (brief.knownIssues) {
-      children.push(p("Known Market Complaints & Preventive Actions", { bold: true, after: 100 }));
-      children.push(...multiline(brief.knownIssues, { after: 200 }));
-    }
-
-    if (brief.qualityInspectionNotes) {
-      children.push(p("Quality Inspection Notes", { bold: true, after: 100 }));
-      children.push(...multiline(brief.qualityInspectionNotes, { after: 200 }));
-    }
 
     children.push(p("II. COMPLIANCE", { bold: true, after: 100 }));
     children.push(...multiline(brief.compliance, { after: 200 }));

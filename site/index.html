@@ -109,11 +109,12 @@
       </label>
 
       <h3>Typical Production Mistakes / QC Acceptable Limits</h3>
+      <p class="hint" style="margin-top:-8px;">If the PD sheet had a review-analysis table, this starts pre-filled from it as a first draft — check the wording before exporting.</p>
       <div id="qcTable" class="editable-table"></div>
       <button class="btn btn-small" id="btnAddQcRow">+ Add QC row</button>
 
       <label class="block">Known Market Complaints &amp; Preventive Actions
-        <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Pulled from the PD sheet's review analysis (competitor complaints ranked by mention count) — brief the supplier on these upfront so they're designed out, not caught at QC.</span>
+        <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Pulled from the PD sheet's review analysis (competitor complaints ranked by mention count). Used to pre-fill starter rows in the QC table below (only when it's still empty) — this field itself is reference only and isn't included as its own section in the exported brief, since that isn't part of the standard format.</span>
         <textarea id="f_knownIssues" rows="8"></textarea>
         <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_knownIssues">+ Add bullet</button></div>
       </label>
@@ -134,6 +135,7 @@
         <label>PO Number <input id="f_poNumber" type="text" /></label>
         <label>Supplier Company Name <input id="f_supplierName" type="text" /></label>
         <label>Supplier Contact Person <input id="f_supplierContact" type="text" /></label>
+        <label>Supplier Email <input id="f_supplierEmail" type="email" /></label>
         <label>Supplier Phone/Fax <input id="f_supplierPhone" type="text" /></label>
       </div>
       <label class="block">Supplier Address

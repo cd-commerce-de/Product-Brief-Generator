@@ -145,6 +145,11 @@
     }
     b.knownIssues = parsed.guessed.knownIssuesText || b.knownIssues;
     b.qualityInspectionNotes = (parsed.guessed.qualityInspectionNotes || []).join("\n\n") || b.qualityInspectionNotes;
+    // Only seed QC rows when the table is still empty, so re-importing or
+    // editing an existing brief never clobbers rows the person already wrote.
+    if (!b.qcRows.length && parsed.guessed.suggestedQcRows && parsed.guessed.suggestedQcRows.length) {
+      b.qcRows = parsed.guessed.suggestedQcRows.map((r) => ({ ...r }));
+    }
   }
 
   function renderImportPreview(parsed) {
@@ -273,6 +278,7 @@
       b.poNumber = $("#f_poNumber").value;
       b.supplierName = $("#f_supplierName").value;
       b.supplierContact = $("#f_supplierContact").value;
+      b.supplierEmail = $("#f_supplierEmail").value;
       b.supplierPhone = $("#f_supplierPhone").value;
       b.supplierAddress = $("#f_supplierAddress").value;
       b.compliance = $("#f_compliance").value;
@@ -297,6 +303,7 @@
     $("#f_poNumber").value = b.poNumber;
     $("#f_supplierName").value = b.supplierName;
     $("#f_supplierContact").value = b.supplierContact;
+    $("#f_supplierEmail").value = b.supplierEmail;
     $("#f_supplierPhone").value = b.supplierPhone;
     $("#f_supplierAddress").value = b.supplierAddress;
     $("#f_compliance").value = b.compliance;

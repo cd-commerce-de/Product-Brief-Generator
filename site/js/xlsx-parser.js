@@ -128,11 +128,20 @@
     const order = [];
     let currentLabel = null;
     let currentGroup = null;
+    let skuVariants = null; // first non-empty component/SKU column value found
 
     (section ? section.lines : []).forEach((cells) => {
+      const c0 = cells[0] || "";
       const c1 = cells[1] || "";
       const c2 = cells[2] || "";
       const extra = cells.slice(3).filter((c) => c !== "");
+
+      if (!skuVariants && c0 && /\d/.test(c0)) {
+        // The component/SKU column (e.g. "SSC01-SW\nSSC01-SG\nSSC01-SR") is
+        // usually repeated identically on every group-header row - grab the
+        // first one seen as the canonical variant list for this product.
+        skuVariants = c0.split("\n").map((s) => s.trim()).filter(Boolean).join("\n");
+      }
 
       if (c1) {
         currentLabel = c1;
@@ -142,7 +151,13 @@
           featureMap[currentLabel] = { isGroup: true, subFeatures: [] };
           currentGroup = featureMap[currentLabel];
         } else {
-          const val = [c2, ...extra].filter(Boolean).join(" ");
+          // Leaf row: our value lives in col2. Any trailing columns here are
+          // competitor-comparison notes (e.g. "Kesser: Black/Gold, Silver...")
+          // and must NOT be folded into our own value - except the rare case
+          // where col2 is empty and there's exactly one trailing column, which
+          // usually means the value just landed one column over, not a
+          // multi-column competitor comparison.
+          const val = c2 || (extra.length === 1 ? extra[0] : "");
           featureMap[currentLabel] = { isGroup: false, value: val };
           currentGroup = null;
         }
@@ -159,7 +174,7 @@
       }
     });
 
-    return { featureMap, order };
+    return { featureMap, order, skuVariants };
   }
 
   function renderFeature(entry) {
@@ -178,6 +193,44 @@
       keywords.some((kw) => k.toLowerCase().includes(kw))
     );
     return key ? featureMap[key] : null;
+  }
+
+  // The header table's "Material" field is meant to be a short summary (e.g.
+  // "Aluminum"), not the full per-component breakdown - that full detail
+  // already lives in Material & Workmanship Instructions. Try to spot a
+  // common material keyword first; fall back to a short truncation.
+  const MATERIAL_KEYWORDS = [
+    "stainless steel", "carbon fiber", "carbon fibre", "fiberglass", "memory foam",
+    "particleboard", "polycarbonate", "zinc alloy", "pu leather", "aluminium",
+    "aluminum", "titanium", "bamboo", "ceramic", "plastic", "silicone", "leather",
+    "nylon", "rubber", "cotton", "canvas", "brass", "copper", "glass", "steel",
+    "wood", "foam", "abs", "pvc", "mdf",
+  ];
+  function shortMaterialSummary(text) {
+    const lower = (text || "").toLowerCase();
+    const hit = MATERIAL_KEYWORDS.find((kw) => lower.includes(kw));
+    if (hit) return hit.replace(/\b\w/g, (c) => c.toUpperCase());
+    const t = (text || "").trim();
+    return t.length > 150 ? t.slice(0, 150).trim() + "…" : t;
+  }
+
+  // Turns the top PD-sheet review-analysis concerns into starter QC table
+  // rows (Parameter / Acceptable / Not Acceptable) - a first draft to edit,
+  // not a finished answer. Only meant to be used when the QC table is still
+  // empty, so it never overwrites something the person already wrote.
+  function deriveQcRowsFromIssues(knownIssues) {
+    return (knownIssues || []).slice(0, 6).map((k) => {
+      const dashIdx = k.issue.indexOf(" - ");
+      const topic = (dashIdx > -1 ? k.issue.slice(0, dashIdx) : k.issue).trim().slice(0, 60);
+      const detail = (dashIdx > -1 ? k.issue.slice(dashIdx + 3) : k.issue).split(/\.\s/)[0].trim();
+      const firstSolutionLine = (k.solution || "")
+        .split("\n").map((l) => l.replace(/^[-~]\s*/, "").trim()).filter(Boolean)[0] || "";
+      return {
+        parameter: topic,
+        acceptable: firstSolutionLine.slice(0, 180),
+        notAcceptable: detail.slice(0, 180),
+      };
+    });
   }
 
   // Pulls a "Technical Specifications" mini-table, e.g.:
@@ -283,7 +336,7 @@
     const qualityInspectionNotes = parseQualityInspectionSheet(qualityWs);
 
     const componentSection = findSectionsMatching(sections, ["component"])[0];
-    const { featureMap, order } = parseComponentInformation(componentSection);
+    const { featureMap, order, skuVariants } = parseComponentInformation(componentSection);
 
     const materialEntry = getFeature(featureMap, ["material"]);
     const colorEntry = getFeature(featureMap, ["color"]);
@@ -310,15 +363,24 @@
       .map((k, i) => `${i + 1}. ${k.issue}${k.mentions ? ` (${k.mentions} mentions)` : ""}\n   -> Preventive spec/action: ${k.solution}`)
       .join("\n\n");
 
+    // The Overview tab's "Product Ident. No." is often just the base SKU
+    // prefix (e.g. "SSC"); the actual per-variant article numbers usually
+    // only appear in the spec sheet's component column (e.g. "SSC01-SW /
+    // SSC01-SG / SSC01-SR"). Prefer whichever is more complete.
+    const overviewArticleNo = guessField(overview, ["product ident"]);
+    const articleNo = (skuVariants && skuVariants.length > overviewArticleNo.length)
+      ? skuVariants
+      : overviewArticleNo;
+
     return {
       meta: { specSource, sheetNames: workbook.SheetNames },
       overview,
       sections: sections.map((s) => ({ title: s.title, text: sectionToPlainText(s) })),
       guessed: {
-        articleNo: guessField(overview, ["product ident"]),
+        articleNo,
         item: guessField(overview, ["product name"]),
         description: guessField(overview, ["product description"]),
-        material: renderFeature(materialEntry).slice(0, 400),
+        material: shortMaterialSummary(renderFeature(materialEntry)),
         color: renderFeature(colorEntry),
         inclusions: renderFeature(inclusionsEntry),
         packaging: packagingText,
@@ -327,6 +389,7 @@
         knownIssues,
         knownIssuesText,
         qualityInspectionNotes,
+        suggestedQcRows: deriveQcRowsFromIssues(knownIssues),
       },
     };
   }

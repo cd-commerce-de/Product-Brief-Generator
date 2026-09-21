@@ -21,6 +21,7 @@
       supplierName: "",
       supplierContact: "",
       supplierPhone: "",
+      supplierEmail: "",
       supplierAddress: "",
       compliance: "",
       approvalContacts: "",

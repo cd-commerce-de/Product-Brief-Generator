@@ -46,16 +46,20 @@ post-optimized layout; that's what this tool is optimized for.
    Specifications`, and `Quality Inspection/PO Information` — plus any
    embedded product photos on the `Overview` and spec tabs (see "Images"
    below).
-2. **Review & Edit** — pre-fills Article No., Item, Material, Color,
-   Inclusions, Material & Workmanship Instructions, Technical Specifications,
-   Packaging, and Known Market Complaints & Preventive Actions. You review
-   and correct — the parser is deliberately not "magic": PD sheets still vary
-   enough that a human pass is the right safety net, but it removes the
-   retyping/reformatting work.
+2. **Review & Edit** — pre-fills Article No. (preferring the fuller SKU
+   variant list from the spec sheet's component column over the Overview
+   tab's shorter base identifier, when both exist), Item, a concise Material
+   summary, Color, Inclusions, Material & Workmanship Instructions, Technical
+   Specifications, and Packaging. The Typical Production Mistakes/QC table
+   auto-seeds starter rows from the PD sheet's review-analysis concerns when
+   it's still empty — a first draft, not a finished answer (see "Known
+   limitations"). You review and correct — the parser is deliberately not
+   "magic": PD sheets still vary enough that a human pass is the right
+   safety net, but it removes the retyping/reformatting work.
 3. **PO & Compliance** — the fields that only exist at PO time (supplier
-   name/contact, PO number, compliance test reports, approval contacts) plus
-   quality-inspection setup (brand name, sample count, inspection dates,
-   product-specific QC notes) that feeds Step 5.
+   name/contact/email, PO number, compliance test reports, approval
+   contacts) plus quality-inspection setup (brand name, sample count,
+   inspection dates, product-specific QC notes) that feeds Step 5.
 4. **Export & Save** — download a `.docx` Product Brief, save a version
    locally (browser storage, keyed by SKU + version), or export raw data as
    JSON.
@@ -224,6 +228,20 @@ Every push to `main` auto-redeploys.
   does; KPM/AKP-style post-optimized sheets fold specs into the Features
   list instead). For those, add spec rows manually in Step 2 — the raw
   "Detected sections" panel in Step 1 has everything you need to copy from.
+- **The QC Acceptable/Not Acceptable table is a starter draft, not a
+  finished answer.** It's auto-seeded from the PD sheet's review-analysis
+  concerns when the table is still empty, but the wording is mechanically
+  derived (issue → "Not Acceptable", recommended fix → "Acceptable") rather
+  than editorially rewritten — check and tighten the wording before
+  exporting, the same way you'd review any auto-filled field.
+- **Component grouping in Material & Workmanship Instructions follows the PD
+  sheet's own field names** (Material, Dimensions, Color, Features), not a
+  hand-picked grouping by physical part (e.g. "Deck & Grip Tape", "Wheels &
+  Bearings") the way a person might write it. Getting genuinely human-style
+  reorganization would need an LLM rewrite step, which means a backend
+  (see Phase 3) — out of reach for a static, no-backend site. The content is
+  the same either way; only the editorial grouping differs, and it's fully
+  editable in Step 2 either way.
 - **Marketing Guide Sheet is a scaffold, not a finished document.** Benefit
   copy, target group, and photos are original writing/assets that stay as
   `TODO` prompts — auto-generating persuasive marketing copy from a spec
@@ -233,6 +251,31 @@ Every push to `main` auto-redeploys.
   `localStorage`, not a shared database — they won't show up on a
   colleague's machine. Good enough for drafting; not a replacement for the
   Product Brief Shared Drive / ClickUp Masterlist as the system of record.
+
+## What the PD sheet can't give the tool, no matter how good the parser gets
+
+Comparing a hand-written brief against what the app produces from the same
+PD sheet (done for the SUP and SSC products) turned up a consistent pattern:
+every remaining gap is missing *source data*, not a parsing limitation.
+None of the following exist anywhere in a PD sheet, across every layout
+seen so far — they only show up once someone is further down the pipeline
+(supplier picked, PO cut, compliance testing underway):
+
+- Supplier identity: company name, address, contact person, phone, **email**
+- PO number, PO date
+- Compliance test report numbers, the specific regulations tested against,
+  and their costs (these come from a lab, after testing — a PD sheet is
+  built before a supplier is even chosen)
+- Sample count, Pre-QC date, 3rd-party inspection date
+- The Acceptable/Not Acceptable wording in the QC table in its final,
+  polished form (the PD sheet's review-analysis table gets you a rough
+  draft — see "Known limitations" above — but not the finished phrasing)
+
+If CD Commerce wanted the tool to auto-fill more of this, the realistic
+options are: (a) accept Step 3 as a short manual step (current design), or
+(b) pull from a different source entirely once one exists — a PO record, a
+supplier database, or a lab-testing tracker — rather than expecting the PD
+sheet to carry data it was never meant to hold.
 
 ## Phase 3 ideas (not built yet)
 
