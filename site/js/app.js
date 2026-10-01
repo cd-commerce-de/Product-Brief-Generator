@@ -27,11 +27,15 @@
     $$(".step").forEach((s) => {
       const step = Number(s.dataset.step);
       s.classList.toggle("active", step === n);
-      s.classList.toggle("done", step < n);
+      // Product History (6) isn't a sequential wizard step, so visiting it
+      // should never mark steps 1-5 as "done" the way progressing through
+      // the actual wizard does.
+      s.classList.toggle("done", n <= 5 && step < n);
     });
     if (n === 1) renderActiveProductNote();
     if (n === 2) fillReviewForm();
     if (n === 4) { fillExportForm(); renderProductList("#versionList"); }
+    if (n === 6) renderProductList("#historyList");
   }
 
   $$("[data-next]").forEach((btn) =>

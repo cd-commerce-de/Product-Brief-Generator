@@ -31,6 +31,7 @@
     <div class="step" data-step="3"><span>3</span> PO &amp; Compliance</div>
     <div class="step" data-step="4"><span>4</span> Export &amp; Save</div>
     <div class="step" data-step="5"><span>5</span> Downstream Docs</div>
+    <div class="step step-history" data-step="6"><span>&#128336;</span> Product History</div>
   </nav>
 
   <main id="app">
@@ -241,6 +242,15 @@
       <div class="nav-buttons">
         <button class="btn btn-ghost" data-back="4">&larr; Back</button>
       </div>
+    </section>
+
+    <!-- PRODUCT HISTORY (not part of the wizard sequence - browse/open/delete any saved product) -->
+    <section class="panel hidden" id="panel-6">
+      <h2>Product History</h2>
+      <p class="hint">One card per product — generating a brief 5 times for the same product updates this one card
+        and adds to its history below, it never creates a separate entry. Click "View history" on a card to see every
+        past save with a one-click Restore.</p>
+      <div id="historyList" class="product-list"></div>
     </section>
 
   </main>

@@ -78,6 +78,13 @@ body {
 .step.active span { background: var(--accent); color: white; }
 .step.done { color: var(--ok); }
 
+/* Product History isn't part of the 1-5 wizard sequence - set it apart
+   visually (pushed right, separated by a divider) so it doesn't read as
+   "step 6 of a sequence" the way the numbered steps do. */
+.step-history { flex: 0 0 170px; margin-left: auto; border-left: 2px solid var(--line); }
+.step-history span { background: none; font-size: 15px; }
+.step-history.active span { background: none; }
+
 main#app { max-width: 960px; margin: 20px auto 60px; padding: 0 32px; }
 
 .panel {

@@ -78,8 +78,13 @@ post-optimized layout; that's what this tool is optimized for.
 
 ### Product history (one record per product, not per save)
 
-Step 4's "Saved products" list keeps **one card per product**, not one per
-save. Re-saving the same product (matched by a "Product Key" — auto-
+A dedicated **Product History** tab sits in the main navigation (separated
+from the 1-5 wizard steps, since it's a standing view you can open anytime,
+not a sequential step) — it keeps **one card per product**, not one per
+save. Generating a brief five times for the same product updates that one
+card and adds five entries to its history, rather than creating five
+separate cards. Step 4's "Saved products" list and the "Open saved brief"
+modal in the top bar show the same data for convenience mid-workflow. Re-saving the same product (matched by a "Product Key" — auto-
 suggested from Article No., editable if you'd rather set it yourself)
 updates that product's current brief and appends a lightweight entry to its
 own history, instead of creating a new top-level card. Each card shows a
