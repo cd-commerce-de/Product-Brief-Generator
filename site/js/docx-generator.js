@@ -375,11 +375,21 @@
 
     children.push(p("Herewith I confirm that the product sample will be produced exactly as stated in the Product Briefing Agreement. I confirm to use the exact same materials as shown on page 1-22 as agreed with the customer. As well I confirm that the order details above will be met.", { after: 300 }));
 
+    // A "\n" inside a single text run is not a line break in Word - it's
+    // silently collapsed, which is why the line and the label used to run
+    // together on one row. Two separate (centered) paragraphs instead, so
+    // the label actually sits on its own line below the underscores.
+    function signatureLine(label) {
+      return [
+        p("________________________", { align: AlignmentType.CENTER, after: 40 }),
+        p(label, { align: AlignmentType.CENTER }),
+      ];
+    }
     children.push(table([halfW, CONTENT_WIDTH - halfW], [
       new TableRow({
         children: [
-          cell(p("________________________\nSupplier"), halfW, { noBorder: true }),
-          cell(p("________________________\nCustomer - CD Commerce GmbH"), CONTENT_WIDTH - halfW, { noBorder: true }),
+          cell(signatureLine("Supplier"), halfW, { noBorder: true }),
+          cell(signatureLine("Customer - CD Commerce GmbH"), CONTENT_WIDTH - halfW, { noBorder: true }),
         ],
       }),
     ]));

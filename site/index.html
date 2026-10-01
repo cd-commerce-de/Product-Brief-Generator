@@ -135,6 +135,12 @@
       <h2>PO &amp; Compliance Details</h2>
       <p class="hint">These fields aren't in the PD sheet — they come from the purchase order / supplier setup.</p>
 
+      <label class="block">Used this supplier before?
+        <select id="f_supplierPicker">
+          <option value="">— Select a saved supplier to fill in their details, or type a new one below —</option>
+        </select>
+      </label>
+
       <div class="form-grid">
         <label>Date <input id="f_date" type="text" placeholder="MM.DD.YYYY" /></label>
         <label>PO Number <input id="f_poNumber" type="text" /></label>
@@ -149,7 +155,14 @@
 
       <label class="block">Compliance &amp; Test Reports
         <textarea id="f_compliance" rows="8" placeholder="e.g. Test Report No. ... demonstrating compliance to EN 60335-1:2012..."></textarea>
-        <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_compliance">+ Add bullet</button></div>
+        <div class="textarea-toolbar">
+          <button type="button" class="btn btn-small" data-bullet-for="f_compliance">+ Add bullet</button>
+          <button type="button" class="btn btn-small" data-compliance-snippet="REACH Regulation (EC) No. 1907/2006">+ REACH</button>
+          <button type="button" class="btn btn-small" data-compliance-snippet="RoHS Directive 2011/65/EU">+ RoHS</button>
+          <button type="button" class="btn btn-small" data-compliance-snippet="General Product Safety Regulation (GPSR) (EU) 2023/988">+ GPSR</button>
+          <button type="button" class="btn btn-small" data-compliance-snippet="Packaging and Packaging Waste Regulation (PPWR) (EU) 2025/40">+ PPWR</button>
+          <button type="button" class="btn btn-small" data-compliance-snippet="Persistent Organic Pollutants (POP) Regulation (EU) 2019/1021">+ POP</button>
+        </div>
       </label>
 
       <label class="block">Approval Contacts (comma-separated names/emails)
@@ -216,6 +229,8 @@
         QC notes carry straight over. Each downloads as .xlsx, compatible with Google Sheets
         (Drive → right-click → Open with → Google Sheets).</p>
 
+      <button id="btnExportAll" class="btn btn-secondary" style="margin-bottom:16px;">⬇ Download everything (.zip): Product Brief + all 3 downstream docs</button>
+
       <div class="section-list">
         <div class="section-item" style="cursor:default;">
           <strong>Pre-inspection Briefing Form</strong>
@@ -274,6 +289,7 @@
   <script src="js/xlsx-images.js"></script>
   <script src="js/state.js"></script>
   <script src="js/storage.js"></script>
+  <script src="js/defaults.js"></script>
   <script src="js/docx-generator.js"></script>
   <script src="js/xlsx-generators.js"></script>
   <script src="js/app.js"></script>

@@ -5,6 +5,14 @@
 
   const B = () => PBState.brief;
 
+  // Article No. is often multi-line (several SKU variants) - used raw in a
+  // filename that produces a literal newline character in the saved file
+  // name, which is invalid on most filesystems. Collapse it to something
+  // filename-safe everywhere a filename gets built from it.
+  function filenameSafe(s) {
+    return (s || "").split("\n").map((l) => l.trim()).filter(Boolean).join("+").replace(/[\\/:*?"<>|]/g, "-");
+  }
+
   // ---------- Bullet-list helper buttons ----------
   // Generic: any button with data-bullet-for="<textareaId>" appends a new
   // bullet line to that textarea (or starts one if the field is empty),
@@ -15,6 +23,22 @@
       if (!ta) return;
       const needsNewline = ta.value.length > 0 && !ta.value.endsWith("\n");
       ta.value += (needsNewline ? "\n" : "") + "• ";
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+    });
+  });
+
+  // ---------- Compliance quick-insert buttons ----------
+  // The same handful of EU regulations (REACH, RoHS, GPSR, PPWR, POP) show
+  // up in almost every compliance section - one click appends the citation
+  // instead of typing it out, without presuming a report number or test
+  // cost, which genuinely varies per product/supplier.
+  $$("[data-compliance-snippet]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const ta = $("#f_compliance");
+      if (!ta || ta.value.includes(btn.dataset.complianceSnippet)) return; // avoid duplicate inserts
+      const needsNewline = ta.value.length > 0 && !ta.value.endsWith("\n");
+      ta.value += (needsNewline ? "\n" : "") + "- " + btn.dataset.complianceSnippet;
       ta.focus();
       ta.selectionStart = ta.selectionEnd = ta.value.length;
     });
@@ -318,6 +342,10 @@
       b.preQcDate = $("#f_preQcDate").value;
       b.inspectionDate = $("#f_inspectionDate").value;
       b.qualityInspectionNotes = $("#f_qualityInspectionNotes").value;
+      // Learn from this brief for next time - supplier directory and the
+      // Approval Contacts default both grow automatically, no extra step.
+      PBDefaults.rememberSupplier(b);
+      PBDefaults.rememberFieldDefaults(b);
     }
     if (!$("#panel-4").classList.contains("hidden")) {
       b.productKey = $("#f_productKey").value || b.productKey;
@@ -337,13 +365,39 @@
     $("#f_supplierPhone").value = b.supplierPhone;
     $("#f_supplierAddress").value = b.supplierAddress;
     $("#f_compliance").value = b.compliance;
-    $("#f_approvalContacts").value = b.approvalContacts;
+    // Approval Contacts is nearly identical across every brief in practice -
+    // pre-fill from whatever was last used, but never clobber something
+    // already on the brief (e.g. loaded from history).
+    $("#f_approvalContacts").value = b.approvalContacts || PBDefaults.getFieldDefaults().approvalContacts || "";
     $("#f_brandName").value = b.brandName;
     $("#f_sampleCount").value = b.sampleCount;
     $("#f_preQcDate").value = b.preQcDate;
     $("#f_inspectionDate").value = b.inspectionDate;
     $("#f_qualityInspectionNotes").value = b.qualityInspectionNotes;
+    renderSupplierPicker();
   }
+
+  function renderSupplierPicker() {
+    const select = $("#f_supplierPicker");
+    const suppliers = PBDefaults.listSuppliers();
+    select.innerHTML = '<option value="">— Select a saved supplier to fill in their details, or type a new one below —</option>';
+    suppliers.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.name;
+      opt.textContent = s.name;
+      select.appendChild(opt);
+    });
+  }
+
+  $("#f_supplierPicker").addEventListener("change", (e) => {
+    const supplier = PBDefaults.getSupplier(e.target.value);
+    if (!supplier) return;
+    $("#f_supplierName").value = supplier.name;
+    $("#f_supplierAddress").value = supplier.address;
+    $("#f_supplierPhone").value = supplier.phone;
+    $("#f_supplierEmail").value = supplier.email;
+    $("#f_supplierContact").value = supplier.contact;
+  });
 
   // hook into step 3 render
   const panel3Observer = () => {
@@ -368,7 +422,7 @@
     setStatus("#exportStatus", "Generating .docx…");
     try {
       const blob = await PBDocx.generateDocx(B());
-      const filename = `Product Brief_${B().articleNo || "SKU"}_v${B().version || "1.0"}.docx`;
+      const filename = `Product Brief_${filenameSafe(B().articleNo) || "SKU"}_v${B().version || "1.0"}.docx`;
       PBDocx.downloadBlob(blob, filename);
       setStatus("#exportStatus", `Downloaded ${filename}. Open it in Google Drive (right-click > Open with > Google Docs) to continue editing there.`, "ok");
     } catch (err) {
@@ -380,7 +434,7 @@
   $("#btnExportJson").addEventListener("click", () => {
     syncFormToState();
     const blob = new Blob([JSON.stringify(B(), null, 2)], { type: "application/json" });
-    PBDocx.downloadBlob(blob, `ProductBrief_${B().articleNo || "SKU"}_v${B().version || "1.0"}.json`);
+    PBDocx.downloadBlob(blob, `ProductBrief_${filenameSafe(B().articleNo) || "SKU"}_v${B().version || "1.0"}.json`);
   });
 
   $("#btnSaveVersion").addEventListener("click", () => {
@@ -483,7 +537,7 @@
     syncFormToState();
     try {
       const blob = genFn(B());
-      const filename = `${filenamePrefix}_${B().articleNo || "SKU"}_${B().poNumber || ""}.xlsx`.replace(/_+/g, "_");
+      const filename = `${filenamePrefix}_${filenameSafe(B().articleNo) || "SKU"}_${B().poNumber || ""}.xlsx`.replace(/_+/g, "_");
       PBDocx.downloadBlob(blob, filename);
       setStatus("#downstreamStatus", `Downloaded ${filename}.`, "ok");
     } catch (err) {
@@ -501,6 +555,27 @@
   $("#btnExportMarketing").addEventListener("click", () =>
     exportDownstream(PBXlsxGen.generateMarketingXlsx, "Marketing Guide Sheet")
   );
+
+  $("#btnExportAll").addEventListener("click", async () => {
+    syncFormToState();
+    setStatus("#downstreamStatus", "Generating all 4 documents…");
+    try {
+      const b = B();
+      const sku = filenameSafe(b.articleNo) || "SKU";
+      const zip = new JSZip();
+      const briefBlob = await PBDocx.generateDocx(b);
+      zip.file(`Product Brief_${sku}_v${b.version || "1.0"}.docx`, briefBlob);
+      zip.file(`Pre-inspection Briefing Form_${sku}.xlsx`, PBXlsxGen.generatePreInspectionXlsx(b));
+      zip.file(`Pre-QC Check_${sku}.xlsx`, PBXlsxGen.generatePreQCXlsx(b));
+      zip.file(`Marketing Guide Sheet_${sku}.xlsx`, PBXlsxGen.generateMarketingXlsx(b));
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      PBDocx.downloadBlob(zipBlob, `${sku}_all documents.zip`.replace(/\s+/g, " "));
+      setStatus("#downstreamStatus", "Downloaded all 4 documents as one .zip.", "ok");
+    } catch (err) {
+      console.error(err);
+      setStatus("#downstreamStatus", "Export failed: " + err.message, "error");
+    }
+  });
 
   // ---------- Top bar ----------
   $("#btnNew").addEventListener("click", () => {

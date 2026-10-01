@@ -165,6 +165,7 @@ product-brief-app/
 │   └── js/
 │       ├── xlsx-parser.js      # PD-sheet -> structured data parser
 │       ├── xlsx-images.js      # extracts embedded PD-sheet images (raw zip parse)
+│       ├── defaults.js         # supplier directory + sticky field defaults
 │       ├── state.js            # in-memory brief state
 │       ├── storage.js          # localStorage product history (one record per product)
 │       ├── docx-generator.js   # builds the Product Brief .docx
@@ -249,6 +250,47 @@ git push -u origin main
 - Then follow "Password protection" above to lock it down.
 
 Every push to `main` auto-redeploys.
+
+## Speeding up the process further
+
+Beyond parsing the PD sheet, three things now cut down repeat typing across
+briefs:
+
+- **Supplier directory** — saving a brief with a supplier name filled in
+  automatically remembers that supplier (name, address, phone, email,
+  contact person). Step 3 offers a dropdown ("Used this supplier before?")
+  that fills all five fields in one click on the next product from the same
+  factory, instead of retyping them. No separate "save supplier" step —
+  it learns automatically.
+- **Sticky Approval Contacts** — this field is nearly identical across every
+  brief in practice (the same 2-3 names), so the last value used pre-fills
+  new briefs automatically. Never overwrites something already typed or
+  loaded from history.
+- **Compliance quick-insert buttons** — one click appends a citation for
+  REACH, RoHS, GPSR, PPWR, or POP (the regulations that show up in almost
+  every brief seen so far) instead of typing the full regulation name and
+  number out. Deliberately doesn't presume a report number or test cost,
+  since those genuinely vary per product/supplier and shouldn't be
+  auto-filled with a guess.
+- **"Download everything" button** — one click bundles the Product Brief
+  and all three downstream documents into a single `.zip`, instead of four
+  separate download clicks.
+
+All four are per-browser (localStorage), same caveat as Product History -
+see "Known limitations".
+
+## Fourth fix: signature line label running into the underline
+
+The "Supplier" / "Customer - CD Commerce GmbH" labels were appearing
+immediately after the underscores on the same line instead of centered
+below them. Root cause: a `"\n"` character inside a single text run isn't a
+line break in Word — it's silently dropped — so
+`p("________________________\nSupplier")` always rendered as one line, not
+two. Fixed by using two separate (centered) paragraphs instead of one
+string with an embedded newline. Worth knowing for future edits to this
+file: any text meant to appear on its own line needs its own `Paragraph`
+(or `multiline()`/`numberedLines()`, which already do this correctly) — a
+literal `\n` inside a single `p(...)` call will not create a line break.
 
 ## Third reverse-engineering pass
 
