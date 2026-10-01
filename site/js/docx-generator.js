@@ -22,7 +22,7 @@
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     HeadingLevel, WidthType, BorderStyle, VerticalAlign, Header, Footer,
     AlignmentType, ImageRun, PageNumber, HorizontalPositionRelativeFrom,
-    VerticalPositionRelativeFrom, TextWrappingType, LevelFormat,
+    VerticalPositionRelativeFrom, TextWrappingType, LevelFormat, PageOrientation,
   } = docx;
 
   // Reference template renders Product Inclusions and the Material &
@@ -229,7 +229,7 @@
     rows.push(new TableRow({
       children: [
         cell(p("Packaging", { bold: true }), labelW, { shaded: true }),
-        cell(multiline(brief.packaging), valueW),
+        cell(numberedLines(brief.packaging), valueW),
       ],
     }));
 
@@ -327,13 +327,15 @@
     ]));
     children.push(p("", { after: 100 }));
 
-    children.push(labelValueTable([
-      ["To:", [p(brief.supplierName || "", { bold: true })]],
-      ["", brief.supplierAddress || ""],
-      ["", `Tel/Fax: ${brief.supplierPhone || ""}`],
-      ["", `Email: ${brief.supplierEmail || ""}`],
-      ["", `Contact person: ${brief.supplierContact || ""}`],
-    ], 15, true));
+    // Skip optional lines that have nothing in them (e.g. Step 3 wasn't
+    // filled in yet) rather than rendering dangling labels like "Tel/Fax:"
+    // with nothing after them, or blank gap rows.
+    const toRows = [["To:", [p(brief.supplierName || "", { bold: true })]]];
+    if (brief.supplierAddress) toRows.push(["", brief.supplierAddress]);
+    if (brief.supplierPhone) toRows.push(["", `Tel/Fax: ${brief.supplierPhone}`]);
+    if (brief.supplierEmail) toRows.push(["", `Email: ${brief.supplierEmail}`]);
+    if (brief.supplierContact) toRows.push(["", `Contact person: ${brief.supplierContact}`]);
+    children.push(labelValueTable(toRows, 15, true));
 
     children.push(p("", { after: 200 }));
 
@@ -383,7 +385,12 @@
       sections: [{
         properties: {
           page: {
-            size: { width: PAGE_WIDTH, height: PAGE_HEIGHT },
+            // docx.js swaps width/height itself when orientation is set to
+            // LANDSCAPE (it expects portrait-equivalent values and flips
+            // them) - PAGE_WIDTH/PAGE_HEIGHT here are already the landscape
+            // values used everywhere else (table widths etc.), so they must
+            // be passed swapped to end up correct after that internal flip.
+            size: { width: PAGE_HEIGHT, height: PAGE_WIDTH, orientation: PageOrientation.LANDSCAPE },
             margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN, header: 720, footer: 720 },
           },
         },

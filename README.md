@@ -250,6 +250,32 @@ git push -u origin main
 
 Every push to `main` auto-redeploys.
 
+## Second reverse-engineering pass (after the fixes above shipped)
+
+Comparing a freshly-generated brief against the manual one again turned up
+three more polish items, all fixed:
+
+- **Packaging** wasn't numbered like the rest of the Material & Workmanship
+  breakdown — now uses the same auto-numbered list format.
+- **The "To:" block** showed dangling labels ("Tel/Fax:" with nothing after
+  it) and blank gap rows when Step 3 hadn't been filled in yet. Empty
+  optional lines are now skipped entirely rather than rendered blank.
+- **Page orientation metadata** said "portrait" even though the page
+  rendered as landscape (harmless visually, but incorrect for strict
+  readers). Fixed — note that `docx.js` swaps width/height internally
+  whenever you set `orientation: LANDSCAPE`, so the values passed into
+  `size` have to be pre-swapped to end up correct; this tripped up the fix
+  on the first attempt and is called out in a comment in
+  `docx-generator.js` so it doesn't regress.
+
+A note on testing hygiene: validating the orientation fix involved
+reinstalling the `docx` npm package for local testing, which silently
+pulled the *latest* version instead of the `8.5.0` pinned in the app's CDN
+link — producing files that failed to open in a strict parser. That was a
+test-environment artifact, not a real bug, but it's a reminder that any
+future local testing against this codebase must pin `docx@8.5.0` exactly
+(matching the CDN URL in `index.html`) or risk false failures.
+
 ## Reverse-engineering pass against a real manually-written brief
 
 A side-by-side comparison against a hand-written brief for the same product
