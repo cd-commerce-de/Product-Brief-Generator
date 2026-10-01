@@ -62,6 +62,10 @@
       spacing: { after: opts.after ?? 120 },
       heading: opts.heading,
       alignment: opts.align,
+      // Stops a section heading from being stranded alone at the bottom of
+      // a page while its content (image, table, paragraph) gets pushed to
+      // the next one - Word/LibreOffice push the whole pair together instead.
+      keepNext: opts.keepNext,
     });
   }
 
@@ -350,19 +354,19 @@
     children.push(p("", { after: 200 }));
 
     if (brief.includeImages && brief.images && brief.images.hero && brief.images.hero.length) {
-      children.push(p("Product Image(s)", { bold: true, after: 100 }));
+      children.push(p("Product Image(s)", { bold: true, after: 100, keepNext: true }));
       children.push(...imageParagraphs(brief.images.hero, 220));
       children.push(p("", { after: 100 }));
     }
 
-    children.push(p("I. PRODUCT INDIVIDUALIZATION", { bold: true, after: 150 }));
+    children.push(p("I. PRODUCT INDIVIDUALIZATION", { bold: true, after: 150, keepNext: true }));
     children.push(productIndividualizationTable(brief, numberedLines));
     children.push(p("", { after: 200 }));
 
-    children.push(p("II. COMPLIANCE", { bold: true, after: 100 }));
+    children.push(p("II. COMPLIANCE", { bold: true, after: 100, keepNext: true }));
     children.push(...multiline(brief.compliance, { after: 200 }));
 
-    children.push(p("III. TYPICAL PRODUCTION MISTAKES/QUALITY CHECK ACCEPTABLE LIMITS", { bold: true, after: 150 }));
+    children.push(p("III. TYPICAL PRODUCTION MISTAKES/QUALITY CHECK ACCEPTABLE LIMITS", { bold: true, after: 150, keepNext: true }));
     children.push(qcTable(brief.qcRows));
     children.push(p("", { after: 200 }));
 

@@ -250,6 +250,18 @@ git push -u origin main
 
 Every push to `main` auto-redeploys.
 
+## Third reverse-engineering pass
+
+Comparing another freshly-generated brief found the "Product Image(s)"
+heading could get stranded alone at the bottom of a page, with its actual
+photo pushed to the top of the next page — leaving a label with nothing
+under it and an orphaned image with nothing above it. Fixed by setting
+`keepNext` (a standard docx paragraph property) on that heading and the
+other three standalone section headings ("I. PRODUCT INDIVIDUALIZATION",
+"II. COMPLIANCE", "III. TYPICAL PRODUCTION MISTAKES/QC"), so Word/Google
+Docs always push a heading and what comes right after it to the next page
+together rather than splitting them.
+
 ## Second reverse-engineering pass (after the fixes above shipped)
 
 Comparing a freshly-generated brief against the manual one again turned up
