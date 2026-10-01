@@ -1,10 +1,10 @@
 /* docx-generator.js
- * Builds a .docx matching CD Commerce's updated Product Brief template
- * (CD_Commerce_-_Product_Brief_Template.docx): landscape page, a full-width
+ * Builds a .docx matching CD Commerce's official Product Brief template
+ * (CD_Commerce_-_Product_Brief_Template.docx): landscape A4, a full-width
  * orange branded header banner instead of a text title, "Date / PO Number"
  * as the first line, a "To:" supplier block, the Article info table, a
  * unified Product Individualization table (with per-component sub-rows),
- * Compliance before the QC mistakes table, then the QC table and sign-off.
+ * "II. COMPLIANCE" before "III. TYPICAL PRODUCTION MISTAKES/QC", and sign-off.
  *
  * Uses the `docx` library (loaded globally via CDN). Plain .docx opens
  * cleanly in Google Docs (File > Open > Upload, or right-click > Open with
@@ -21,8 +21,15 @@
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     HeadingLevel, WidthType, BorderStyle, VerticalAlign, Header, Footer,
-    AlignmentType, ImageRun, PageNumber,
+    AlignmentType, ImageRun, PageNumber, HorizontalPositionRelativeFrom,
+    VerticalPositionRelativeFrom, TextWrappingType, LevelFormat,
   } = docx;
+
+  // Reference template renders Product Inclusions and the Material &
+  // Workmanship Instructions breakdown as auto-numbered lists (1. 2. 3.),
+  // not plain unnumbered lines - this id ties paragraphs below to the
+  // numbering definition registered on the Document itself.
+  const NUMBERING_REF = "pb-numbered-list";
 
   // Landscape A4, 1in (1440 twip) margins, matching the reference template.
   const PAGE_WIDTH = 16834;
@@ -34,11 +41,13 @@
     return Math.round((CONTENT_WIDTH * pct) / 100);
   }
 
+  // Matches the reference template's actual table borders exactly: solid
+  // black, 1pt (size is in eighths of a point, so 8 = 1pt).
   const BORDER = {
-    top: { style: BorderStyle.SINGLE, size: 4, color: "AAAAAA" },
-    bottom: { style: BorderStyle.SINGLE, size: 4, color: "AAAAAA" },
-    left: { style: BorderStyle.SINGLE, size: 4, color: "AAAAAA" },
-    right: { style: BorderStyle.SINGLE, size: 4, color: "AAAAAA" },
+    top: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
+    bottom: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
+    left: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
+    right: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
   };
   const NO_BORDER = {
     top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
@@ -61,6 +70,42 @@
     return lines.map((line) => p(line, opts));
   }
 
+  // Same idea as multiline(), but each non-empty line becomes an
+  // auto-numbered (1. 2. 3.) list item instead of a plain paragraph.
+  //
+  // Each call gets its OWN numbering definition (registered into
+  // `numberingConfigs`, collected per-document and passed to `new
+  // Document()` at the end) rather than sharing one global reference -
+  // Word/docx.js numbers all paragraphs under the same reference as one
+  // continuous sequence, so sharing a reference across table rows would
+  // count 1-2-3-4-5-6... straight through instead of restarting at 1 for
+  // each row, the way the reference template's per-row lists do.
+  function makeNumberedLinesFactory() {
+    const numberingConfigs = [];
+    let counter = 0;
+    function numberedLines(text, opts = {}) {
+      const lines = (text || "").split("\n").filter((l) => l.trim());
+      if (!lines.length) return [];
+      const reference = `${NUMBERING_REF}-${counter++}`;
+      numberingConfigs.push({
+        reference,
+        levels: [{
+          level: 0,
+          format: LevelFormat.DECIMAL,
+          text: "%1.",
+          alignment: AlignmentType.START,
+          style: { paragraph: { indent: { left: 360, hanging: 360 } } },
+        }],
+      });
+      return lines.map((line) => new Paragraph({
+        children: [new TextRun({ text: line, bold: !!opts.bold, size: opts.size || 22 })],
+        spacing: { after: opts.after ?? 60 },
+        numbering: { reference, level: 0 },
+      }));
+    }
+    return { numberedLines, numberingConfigs };
+  }
+
   function cell(children, widthDxa, opts = {}) {
     return new TableCell({
       borders: opts.noBorder ? NO_BORDER : BORDER,
@@ -68,7 +113,10 @@
       columnSpan: opts.columnSpan,
       verticalAlign: VerticalAlign.TOP,
       children: Array.isArray(children) ? children : [children],
-      shading: opts.shaded ? { fill: "F2F2F2" } : undefined,
+      // The reference template uses only a barely-there off-white (f8f8f8)
+      // on label cells, not a strong gray - matching that exactly rather
+      // than the heavier shading used earlier.
+      shading: opts.shaded ? { fill: "F8F8F8" } : undefined,
     });
   }
 
@@ -80,15 +128,19 @@
     });
   }
 
-  // Two-column "label | value" table (header block, To:, Article info).
-  function labelValueTable(pairs, labelPct = 25) {
+  // Two-column "label | value" table (header block, Article info). Pass
+  // `plain: true` for a borderless, unshaded version (used for "To:") -
+  // the reference template renders that block as plain indented text, not
+  // a bordered table; a borderless table with the same column widths gives
+  // the same visual result without needing real paragraph indentation.
+  function labelValueTable(pairs, labelPct = 25, plain = false) {
     const labelW = dxa(labelPct);
     const valueW = CONTENT_WIDTH - labelW;
     const rows = pairs.map(
       ([label, value, opts = {}]) => new TableRow({
         children: [
-          cell(p(label, { bold: true }), labelW, { shaded: true }),
-          cell(Array.isArray(value) ? value : multiline(value), valueW, opts),
+          cell(p(label, { bold: true }), labelW, plain ? { noBorder: true } : { shaded: true }),
+          cell(Array.isArray(value) ? value : multiline(value), valueW, { ...opts, noBorder: plain }),
         ],
       })
     );
@@ -107,7 +159,7 @@
       const lines = block.split("\n");
       const first = lines[0].trim();
       const rest = lines.slice(1).join("\n").trim();
-      const looksLikeLabel = first.length > 0 && first.length <= 60 && !rest ? false : first.length <= 60;
+      const looksLikeLabel = first.length > 0 && first.length <= 60;
       if (looksLikeLabel && lines.length > 1) {
         return [toTitleCase(first), rest];
       }
@@ -120,6 +172,12 @@
       return s.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
     }
     return s;
+  }
+
+  function dividerRow(label) {
+    return new TableRow({
+      children: [cell(p(label, { bold: true }), CONTENT_WIDTH, { shaded: true, columnSpan: 2 })],
+    });
   }
 
   // Lays out a set of already-downscaled images (dataUrl + natural width/
@@ -138,13 +196,7 @@
     return [new Paragraph({ children, spacing: { after: 150 } })];
   }
 
-  function dividerRow(label) {
-    return new TableRow({
-      children: [cell(p(label, { bold: true }), CONTENT_WIDTH, { shaded: true, columnSpan: 2 })],
-    });
-  }
-
-  function productIndividualizationTable(brief) {
+  function productIndividualizationTable(brief, numberedLines) {
     const labelW = dxa(25);
     const valueW = CONTENT_WIDTH - labelW;
     const rows = [];
@@ -152,7 +204,7 @@
     rows.push(new TableRow({
       children: [
         cell(p("Product Inclusions", { bold: true }), labelW, { shaded: true }),
-        cell(multiline(brief.inclusions), valueW),
+        cell(numberedLines(brief.inclusions), valueW),
       ],
     }));
 
@@ -161,7 +213,7 @@
       rows.push(new TableRow({
         children: [
           cell(p(label, { bold: true }), labelW, { shaded: true }),
-          cell(multiline(content), valueW),
+          cell(numberedLines(content), valueW),
         ],
       }));
     });
@@ -197,9 +249,9 @@
     const w1 = dxa(25), w2 = dxa(37.5), w3 = CONTENT_WIDTH - w1 - w2;
     const header = new TableRow({
       children: [
-        cell(p("Parameter", { bold: true }), w1, { shaded: true }),
-        cell(p("Acceptable", { bold: true }), w2, { shaded: true }),
-        cell(p("Not Acceptable", { bold: true }), w3, { shaded: true }),
+        cell(p("Parameter", { bold: true, align: AlignmentType.CENTER }), w1, { shaded: true }),
+        cell(p("Acceptable", { bold: true, align: AlignmentType.CENTER }), w2, { shaded: true }),
+        cell(p("Not Acceptable", { bold: true, align: AlignmentType.CENTER }), w3, { shaded: true }),
       ],
     });
     const body = (rows || []).map(
@@ -221,7 +273,11 @@
     const resp = await fetch("img/header-banner.jpg");
     const buf = new Uint8Array(await resp.arrayBuffer());
     const NATIVE_W = 2048, NATIVE_H = 146;
-    const targetWidthPx = Math.round((CONTENT_WIDTH / 1440) * 96);
+    // Full-bleed: the reference template anchors this image to the PAGE
+    // (not the margins) at roughly (0,0) with no text wrap, so it spans the
+    // entire page width edge-to-edge - matching that exactly rather than
+    // embedding it within the content margins like a normal inline image.
+    const targetWidthPx = Math.round((PAGE_WIDTH / 1440) * 96);
     const targetHeightPx = Math.round(targetWidthPx * (NATIVE_H / NATIVE_W));
     return new Header({
       children: [
@@ -231,6 +287,13 @@
             new ImageRun({
               data: buf,
               transformation: { width: targetWidthPx, height: targetHeightPx },
+              floating: {
+                horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: 0 },
+                verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, offset: 0 },
+                wrap: { type: TextWrappingType.NONE },
+                behindDocument: false,
+                allowOverlap: true,
+              },
             }),
           ],
         }),
@@ -251,6 +314,7 @@
 
   async function generateDocx(brief) {
     const children = [];
+    const { numberedLines, numberingConfigs } = makeNumberedLinesFactory();
 
     const halfW = dxa(50);
     children.push(table([halfW, CONTENT_WIDTH - halfW], [
@@ -269,7 +333,7 @@
       ["", `Tel/Fax: ${brief.supplierPhone || ""}`],
       ["", `Email: ${brief.supplierEmail || ""}`],
       ["", `Contact person: ${brief.supplierContact || ""}`],
-    ], 15));
+    ], 15, true));
 
     children.push(p("", { after: 200 }));
 
@@ -289,8 +353,8 @@
       children.push(p("", { after: 100 }));
     }
 
-    children.push(p("PRODUCT INDIVIDUALIZATION", { bold: true, after: 150 }));
-    children.push(productIndividualizationTable(brief));
+    children.push(p("I. PRODUCT INDIVIDUALIZATION", { bold: true, after: 150 }));
+    children.push(productIndividualizationTable(brief, numberedLines));
     children.push(p("", { after: 200 }));
 
     children.push(p("II. COMPLIANCE", { bold: true, after: 100 }));
@@ -315,6 +379,7 @@
     ]));
 
     const doc = new Document({
+      numbering: { config: numberingConfigs },
       sections: [{
         properties: {
           page: {

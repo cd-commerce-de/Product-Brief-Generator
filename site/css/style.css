@@ -63,6 +63,7 @@ body {
   font-size: 13px;
   border: 1px solid var(--line);
   background: var(--card);
+  cursor: pointer;
 }
 .step span {
   display: inline-block;
@@ -125,6 +126,7 @@ main#app { max-width: 960px; margin: 20px auto 60px; padding: 0 32px; }
 .image-gallery figcaption {
   font-size: 11px; color: var(--muted); text-align: center; padding: 4px 2px; text-transform: uppercase; letter-spacing: .03em;
 }
+
 .section-item {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -190,19 +192,24 @@ h3 { margin-top: 28px; margin-bottom: 10px; font-size: 15px; }
 .nav-buttons { display: flex; justify-content: space-between; margin-top: 26px; }
 .export-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 
-.version-list { display: flex; flex-direction: column; gap: 8px; }
-.version-card {
-  display: flex; justify-content: space-between; align-items: center;
-  border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-size: 13.5px;
+/* Product history: one card per product, each with an expandable history list */
+.product-list { display: flex; flex-direction: column; gap: 10px; }
+.product-card {
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13.5px;
 }
-.version-card .meta { color: var(--muted); font-size: 12px; }
-.version-card .actions { display: flex; gap: 6px; }
+.product-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.product-card .meta { color: var(--muted); font-size: 12px; }
+.product-card .actions { display: flex; gap: 6px; flex-shrink: 0; }
+.product-history-list { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.product-history-row { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: #374151; }
+.product-history-row .actions { display: flex; gap: 6px; }
+.toggle-history { background: none; border: none; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 0; margin-top: 8px; }
 
 .modal {
   position: fixed; inset: 0; background: rgba(0,0,0,.35);
   display: flex; align-items: center; justify-content: center;
 }
-.modal-box { background: white; border-radius: var(--radius); padding: 24px; width: 480px; max-height: 70vh; overflow-y: auto; }
+.modal-box { background: white; border-radius: var(--radius); padding: 24px; width: 520px; max-height: 75vh; overflow-y: auto; }
 
 .footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
 

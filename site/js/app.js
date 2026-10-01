@@ -29,8 +29,9 @@
       s.classList.toggle("active", step === n);
       s.classList.toggle("done", step < n);
     });
+    if (n === 1) renderActiveProductNote();
     if (n === 2) fillReviewForm();
-    if (n === 4) renderVersionList("#versionList");
+    if (n === 4) { fillExportForm(); renderProductList("#versionList"); }
   }
 
   $$("[data-next]").forEach((btn) =>
@@ -65,6 +66,27 @@
     el.className = "status" + (cls ? ` ${cls}` : "");
   }
 
+  // If a brief is already loaded (opened from history, or just parsed once
+  // already this session), remind the person that re-uploading a PD sheet
+  // here only refreshes spec-derived fields - PO/Compliance info they've
+  // already entered in Step 3 is never touched by a re-import.
+  function renderActiveProductNote() {
+    const b = B();
+    const note = $("#activeProductNote");
+    if (b.articleNo || b.item) {
+      note.classList.remove("hidden");
+      note.innerHTML = `<strong>Updating:</strong> ${escapeHtml(b.item || b.articleNo)}${b.articleNo ? ` (${escapeHtml(b.articleNo.split("\n")[0])})` : ""}.
+        Uploading a new PD sheet below will refresh spec-derived fields only — supplier, PO, and compliance info you've
+        already entered in Step 3 stays intact.`;
+    } else {
+      note.classList.add("hidden");
+    }
+  }
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
   function handleFile(file) {
     if (!/\.xlsx$/i.test(file.name)) {
       setStatus("#importStatus", "Please upload an .xlsx file.", "error");
@@ -80,6 +102,7 @@
         renderImportPreview(parsed);
         setStatus("#importStatus", `Parsed successfully (source tab: ${parsed.meta.specSource}). Looking for images…`, "ok");
         $("#importPreview").classList.remove("hidden");
+        renderActiveProductNote();
 
         // Image extraction is a separate pass (SheetJS doesn't expose
         // embedded drawings) and runs after the text parse so a slow/failed
@@ -129,6 +152,9 @@
     B().includeImages = e.target.checked;
   });
 
+  // Only PD-sheet-derived fields are touched here - supplier/PO/compliance
+  // fields (Step 3) and productKey/version tracking are never overwritten by
+  // a re-import, which is what makes "re-upload to backfill" safe.
   function applyParsedToState(parsed) {
     const b = B();
     b.raw = parsed;
@@ -290,13 +316,13 @@
       b.qualityInspectionNotes = $("#f_qualityInspectionNotes").value;
     }
     if (!$("#panel-4").classList.contains("hidden")) {
+      b.productKey = $("#f_productKey").value || b.productKey;
       b.version = $("#f_version").value || b.version;
       b.versionLabel = $("#f_versionLabel").value;
     }
   }
 
   // ---------- Step 3 prefill ----------
-  const originalGoToStep = goToStep;
   function fillPoForm() {
     const b = B();
     $("#f_date").value = b.date || new Date().toISOString().slice(0, 10);
@@ -321,7 +347,18 @@
   };
   new MutationObserver(panel3Observer).observe($("#panel-3"), { attributes: true, attributeFilter: ["class"] });
 
-  // ---------- Step 4: Export ----------
+  // ---------- Step 4: Export & product history ----------
+  function fillExportForm() {
+    const b = B();
+    $("#f_productKey").value = b.productKey || PBStorage.defaultProductKey(b);
+    $("#f_version").value = b.version || "1.0";
+    $("#f_versionLabel").value = b.versionLabel || "";
+  }
+
+  $("#btnSuggestVersion").addEventListener("click", () => {
+    $("#f_version").value = PBStorage.suggestNextVersion($("#f_version").value);
+  });
+
   $("#btnExportDocx").addEventListener("click", async () => {
     syncFormToState();
     setStatus("#exportStatus", "Generating .docx…");
@@ -344,39 +381,48 @@
 
   $("#btnSaveVersion").addEventListener("click", () => {
     syncFormToState();
-    const entry = PBStorage.save(B());
-    setStatus("#exportStatus", `Saved as ${entry.sku} v${entry.version}.`, "ok");
-    renderVersionList("#versionList");
+    const b = B();
+    b.productKey = b.productKey || PBStorage.defaultProductKey(b);
+    const product = PBStorage.save(b, b.productKey);
+    setStatus("#exportStatus", `Saved "${product.key}" — v${b.version} (${product.history.length} revision${product.history.length === 1 ? "" : "s"} total).`, "ok");
+    renderProductList("#versionList");
   });
 
-  function renderVersionList(sel) {
+  function renderProductList(sel) {
     const wrap = $(sel);
     wrap.innerHTML = "";
-    const list = PBStorage.listAll();
-    if (!list.length) {
-      wrap.innerHTML = '<p class="hint">No saved versions yet.</p>';
+    const products = PBStorage.listProducts();
+    if (!products.length) {
+      wrap.innerHTML = '<p class="hint">No saved products yet.</p>';
       return;
     }
-    list.forEach((entry) => {
+    products.forEach((product) => {
       const card = document.createElement("div");
-      card.className = "version-card";
-      const date = new Date(entry.savedAt).toLocaleString();
+      card.className = "product-card";
+      const date = new Date(product.updatedAt).toLocaleString();
+      const revisionWord = product.history.length === 1 ? "revision" : "revisions";
       card.innerHTML = `
-        <div>
-          <strong>${entry.sku}</strong> — v${entry.version} ${entry.label ? "· " + entry.label : ""}
-          <div class="meta">${date}</div>
+        <div class="product-card-top">
+          <div>
+            <strong>${escapeHtml(product.item || product.key)}</strong>
+            <div class="meta">${escapeHtml(product.articleNo || product.key)} · v${escapeHtml(product.brief.version || "1.0")} · ${product.history.length} ${revisionWord} · updated ${date}</div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-small" data-open="${encodeURIComponent(product.key)}">Open</button>
+            <button class="btn btn-small" data-del="${encodeURIComponent(product.key)}">Delete</button>
+          </div>
         </div>
-        <div class="actions">
-          <button class="btn btn-small" data-load="${entry.id}">Open</button>
-          <button class="btn btn-small" data-del="${entry.id}">Delete</button>
-        </div>`;
+        ${product.history.length > 1 ? `<button type="button" class="toggle-history" data-toggle="${encodeURIComponent(product.key)}">View history (${product.history.length})</button>` : ""}
+        <div class="product-history-list hidden" data-history-for="${encodeURIComponent(product.key)}"></div>
+      `;
       wrap.appendChild(card);
     });
-    wrap.querySelectorAll("[data-load]").forEach((btn) =>
+
+    wrap.querySelectorAll("[data-open]").forEach((btn) =>
       btn.addEventListener("click", () => {
-        const entry = PBStorage.load(btn.dataset.load);
-        if (entry) {
-          PBState.brief = entry.brief;
+        const product = PBStorage.load(decodeURIComponent(btn.dataset.open));
+        if (product) {
+          PBState.brief = product.brief;
           $("#versionModal").classList.add("hidden");
           goToStep(2);
         }
@@ -384,9 +430,46 @@
     );
     wrap.querySelectorAll("[data-del]").forEach((btn) =>
       btn.addEventListener("click", () => {
-        PBStorage.remove(btn.dataset.del);
-        renderVersionList(sel);
-        renderVersionList("#versionModalList");
+        if (!confirm("Delete this product's entire saved history? This can't be undone.")) return;
+        PBStorage.remove(decodeURIComponent(btn.dataset.del));
+        renderProductList(sel);
+      })
+    );
+    wrap.querySelectorAll("[data-toggle]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const key = decodeURIComponent(btn.dataset.toggle);
+        const historyWrap = wrap.querySelector(`[data-history-for="${CSS.escape(encodeURIComponent(key))}"]`);
+        const isHidden = historyWrap.classList.contains("hidden");
+        if (isHidden) renderHistoryList(historyWrap, key);
+        historyWrap.classList.toggle("hidden", !isHidden);
+        btn.textContent = isHidden ? "Hide history" : `View history (${PBStorage.load(key).history.length})`;
+      })
+    );
+  }
+
+  function renderHistoryList(container, key) {
+    const product = PBStorage.load(key);
+    if (!product) return;
+    container.innerHTML = "";
+    [...product.history].reverse().forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = "product-history-row";
+      const date = new Date(entry.savedAt).toLocaleString();
+      row.innerHTML = `
+        <span>v${escapeHtml(entry.version || "1.0")} ${entry.label ? "· " + escapeHtml(entry.label) : ""} — ${date}</span>
+        <span class="actions"><button class="btn btn-small" data-restore="${entry.savedAt}">Restore</button></span>
+      `;
+      container.appendChild(row);
+    });
+    container.querySelectorAll("[data-restore]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const restored = PBStorage.restoreHistoryEntry(key, Number(btn.dataset.restore));
+        if (restored) {
+          PBState.brief = restored.brief;
+          setStatus("#exportStatus", `Restored v${restored.brief.version || "1.0"}.`, "ok");
+          fillExportForm();
+          renderProductList("#versionList");
+        }
       })
     );
   }
@@ -427,7 +510,7 @@
   });
 
   $("#btnLoadVersion").addEventListener("click", () => {
-    renderVersionList("#versionModalList");
+    renderProductList("#versionModalList");
     $("#versionModal").classList.remove("hidden");
   });
   $("#btnCloseModal").addEventListener("click", () => $("#versionModal").classList.add("hidden"));

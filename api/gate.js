@@ -3,14 +3,14 @@
  *
  * Every request is rewritten to this function (see vercel.json). It checks
  * HTTP Basic Auth against SITE_USER / SITE_PASSWORD (set as Vercel
- * Environment Variables — never hard-code them here). If the credentials
+ * Environment Variables - never hard-code them here). If the credentials
  * are missing or wrong, the browser gets a 401 with WWW-Authenticate, which
  * makes it pop up its native username/password dialog. If they're correct,
  * this reads and serves the requested file straight out of /site.
  *
  * This is real, server-side protection (unlike a client-side JS password
  * prompt, which can be bypassed by reading the page source) and it works on
- * Vercel's free Hobby plan — no Pro-plan "Password Protection" add-on
+ * Vercel's free Hobby plan - no Pro-plan "Password Protection" add-on
  * needed. Trade-off vs. that add-on: no "log out" button (closing the
  * browser / using a private window is the equivalent), and changing the
  * password requires updating the env vars + redeploying.

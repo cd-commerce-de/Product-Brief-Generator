@@ -1,7 +1,7 @@
 /* xlsx-parser.js
  * Parser for CD Commerce "Product Development Sheet" workbooks.
  *
- * Primary target: the POST-OPTIMIZED layout (KPM/AKP-style) - a single
+ * Primary target: the POST-OPTIMIZED layout (KPM/AKP/SSC-style) - a single
  * "Final Product Specifications" tab that already contains our target specs
  * from the start, laid out feature-by-feature with an inline comparison
  * column against competitor specs (e.g. a "Material" row followed by
@@ -136,6 +136,12 @@
       const c2 = cells[2] || "";
       const extra = cells.slice(3).filter((c) => c !== "");
 
+      // Skip the PD sheet's own literal column-header row for this table
+      // (e.g. "COMPONENT | FEATURE | DESCRIPTION") - it's a label row, not
+      // data, but without this check it gets parsed as featureMap["FEATURE"]
+      // = "DESCRIPTION" and leaks into the brief as a fake row.
+      if (/^component$/i.test(c0) && /^feature$/i.test(c1) && /^description$/i.test(c2)) return;
+
       if (!skuVariants && c0 && /\d/.test(c0)) {
         // The component/SKU column (e.g. "SSC01-SW\nSSC01-SG\nSSC01-SR") is
         // usually repeated identically on every group-header row - grab the
@@ -154,9 +160,9 @@
           // Leaf row: our value lives in col2. Any trailing columns here are
           // competitor-comparison notes (e.g. "Kesser: Black/Gold, Silver...")
           // and must NOT be folded into our own value - except the rare case
-          // where col2 is empty and there's exactly one trailing column, which
-          // usually means the value just landed one column over, not a
-          // multi-column competitor comparison.
+          // where col2 is empty and there's exactly one trailing column,
+          // which usually means the value just landed one column over,
+          // rather than being a multi-column competitor comparison.
           const val = c2 || (extra.length === 1 ? extra[0] : "");
           featureMap[currentLabel] = { isGroup: false, value: val };
           currentGroup = null;
