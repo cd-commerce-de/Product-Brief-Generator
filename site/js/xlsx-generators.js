@@ -312,111 +312,137 @@
   }
 
   // ---------- Marketing Guide Sheet ----------
+  // Structure matches two real reference documents checked directly (SUP
+  // and FKT, two very different product categories) - both share this
+  // exact section order and label wording, confirming it's the standard
+  // template rather than a one-off: ITEM/BRAND NAME/DESCRIPTION -> INCLUSIONS
+  // table -> CERTIFICATIONS -> PRODUCT SPECIFICATIONS (a second, more
+  // detailed restatement of article/material/color/size plus any extra
+  // category-specific specs) -> IMPORTANT FEATURES TO HIGHLIGHT, split into
+  // two sub-groups (features competitors also have vs. underused
+  // differentiators - mapped from the PD sheet's ESP vs. USP sections,
+  // which this template's two sub-groups directly correspond to) ->
+  // Weaknesses in our product -> Target group -> Sample Picture.
+  //
+  // Color convention, confirmed identical across both reference files:
+  // strong orange (#FF9900) marks top-level section dividers (ITEM, BRAND
+  // NAME, PRODUCT SPECIFICATIONS, IMPORTANT FEATURES TO HIGHLIGHT,
+  // Weaknesses in our product., Target group, Sample Picture); a lighter
+  // orange (#F6B26B) marks sub-field labels within a section. Green is
+  // never used anywhere in this document - that's specific to the
+  // Pre-inspection/Pre-QC table headers.
   function generateMarketingXlsx(brief) {
     const uspSection = findRawSection(brief, ["usp"]);
     const espSection = findRawSection(brief, ["esp"]);
-    const highlightLines = []
-      .concat(uspSection ? uspSection.text.split("\n") : [])
-      .concat(espSection ? espSection.text.split("\n") : [])
-      .filter(Boolean);
+    const uspLines = uspSection ? uspSection.text.split("\n").filter(Boolean) : [];
+    const espLines = espSection ? espSection.text.split("\n").filter(Boolean) : [];
 
-    const topFields = [
-      ["ITEM", brief.item || ""],
-      ["BRAND NAME", brief.brandName || ""],
-    ];
-    const rows = [
-      [],
-      ["", "ITEM", brief.item || ""],
-      ["", "BRAND NAME", brief.brandName || ""],
-      ["", "DESCRIPTION", brief.description || ""],
-      ["", "ARTICLE NO.", brief.articleNo || ""],
-      ["", "MATERIAL", brief.material || ""],
-      ["", "SIZE", findDimensionSpec(brief) || ""],
-      ["", "COLOR", brief.color || ""],
-      ["", "PACKAGING SIZE", findPackagingSize(brief)],
-    ];
-    const topFieldEnd = rows.length - 1;
+    const rows = [[]];
+    const strongRows = []; // row indices to receive the strong-orange section-divider style
+    const lightRows = []; // row indices to receive the light-orange sub-field style
 
-    let techStart = null;
-    if (brief.techSpecs && brief.techSpecs.length) {
-      rows.push([], ["", "TECHNICAL SPECIFICATIONS"]);
-      techStart = rows.length - 1;
-      brief.techSpecs.forEach((spec) => rows.push(["", "", `${spec.label}: ${spec.value}`]));
-    }
+    function pushStrong(row) { rows.push(row); strongRows.push(rows.length - 1); return rows.length - 1; }
+    function pushLight(row) { rows.push(row); lightRows.push(rows.length - 1); return rows.length - 1; }
 
-    rows.push([], ["", "INCLUSIONS", "Item/Part", "Benefit", "Expectation Setting"]);
-    const inclusionsHeaderIdx = rows.length - 1;
+    pushStrong(["", "ITEM", brief.item || ""]);
+    pushStrong(["", "BRAND NAME", brief.brandName || ""]);
+    pushLight(["", "DESCRIPTION", brief.description || ""]);
+
+    rows.push([]);
+    const inclusionsHeaderIdx = pushLight(["", "INCLUSIONS", "Item/Part", "", "Benefit", "Expectation Setting"]);
     const inclusionLines = (brief.inclusions || "").split("\n").filter(Boolean);
-    inclusionLines.forEach((line) => {
-      rows.push(["", "", line, "TODO: benefit copy", "TODO: expectation-setting note"]);
+    inclusionLines.forEach((line) => rows.push(["", "", line, "", "", ""]));
+
+    rows.push([]);
+    pushLight(["", "CERTIFICATIONS\n(Link to the certificates)", ""]);
+    pushLight(["", "Other Compliance related informations", ""]);
+
+    rows.push([]);
+    pushStrong(["", "PRODUCT SPECIFICATIONS"]);
+    rows.push([]);
+    pushLight(["", "Link POE Table", ""]);
+    pushLight(["", "Article No.", brief.articleNo || ""]);
+    pushLight(["", "Technical Drawing Link", ""]);
+    pushLight(["", "Material", brief.material || ""]);
+    pushLight(["", "Color", brief.color || ""]);
+    pushLight(["", "Size", findDimensionSpec(brief) || ""]);
+    // Any tech specs beyond the one used for "Size" (e.g. operating
+    // pressure, load capacity, coverage) - the category-specific extras
+    // both reference documents include here.
+    const dimLabelMatch = /dimension|size/i;
+    (brief.techSpecs || []).filter((s) => !dimLabelMatch.test(s.label)).forEach((spec) => {
+      pushLight(["", spec.label, spec.value]);
     });
+    pushLight(["", "Packaging size", findPackagingSize(brief)]);
 
-    rows.push([], ["", "IMPORTANT FEATURES TO HIGHLIGHT", "", "Benefit", ""]);
-    const featuresHeaderIdx = rows.length - 1;
-    rows.push(["", "Mention all the product's features, no matter how small - better too many than too few. All features must be explained in a comprehensible way."]);
-    const featureLines = highlightLines.length ? highlightLines : ["TODO: pull feature list from Product Brief"];
-    featureLines.forEach((line) => rows.push(["", "", line, "TODO: benefit copy", ""]));
+    rows.push([]);
+    const featuresHeaderIdx = pushStrong(["", "IMPORTANT FEATURES TO HIGHLIGHT\nMention all the product's features, no matter how small - better too many than too few. All features must be explained in a comprehensible way."]);
+    const espIntroIdx = pushLight(["", "These features are also offered by other competitors in the market.", "", "", "Benefit"]);
+    espLines.forEach((line) => rows.push(["", "", line, "", ""]));
+    const espRowCount = espLines.length;
 
-    rows.push([], ["", "Known weaknesses / trade-offs to acknowledge"]);
-    const weaknessesHeaderIdx = rows.length - 1;
-    if (brief.knownIssues) {
-      brief.knownIssues.split("\n\n").forEach((block) => rows.push(["", block]));
-    } else {
-      rows.push(["", "TODO - what should buyers not expect this product to do?"]);
-    }
+    rows.push([]);
+    const uspIntroIdx = pushLight(["", "These features are underutilized. Can be positioned as USPs", "", "", "Benefit"]);
+    uspLines.forEach((line) => rows.push(["", "", line, "", ""]));
+    const uspRowCount = uspLines.length;
 
-    rows.push([], ["", "Target group"]);
-    const targetGroupIdx = rows.length - 1;
-    rows.push(["", "TODO: who is this for? (age, use-case, lifestyle)"]);
+    rows.push([]);
+    pushStrong(["", "Weaknesses in our product."]);
+    // Genuinely not PD-sheet-derivable: the PD sheet's review-analysis data
+    // is about competitor products, not an honest self-assessment of this
+    // specific design's own limitations - left blank rather than reused
+    // from a different (related but not equivalent) source.
+    rows.push([""]);
 
-    rows.push([], ["", "Sample Pictures"]);
-    const samplePicsIdx = rows.length - 1;
+    rows.push([]);
+    pushStrong(["", "Target group"]);
+    rows.push([""]);
+
+    rows.push([]);
+    pushStrong(["", "Sample Picture"]);
     rows.push(["", brief.includeImages && brief.images && (brief.images.hero.length || brief.images.feature.length)
       ? "See the Product Brief's Product Image(s) and Reference Images for source photos to use here."
-      : "TODO: attach/link product photos"]);
+      : ""]);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    setColWidths(ws, [3, 24, 38, 44, 36]);
+    setColWidths(ws, [4, 26, 36, 20, 34, 30]);
 
-    // ITEM/BRAND NAME rows get the strong orange (matches the reference
-    // exactly - those two specifically, not the rest of the field list).
-    [1, 2].forEach((rr) => {
-      addMerge(ws, rr, 2, rr, 4);
+    strongRows.forEach((rr) => {
+      addMerge(ws, rr, 2, rr, 5);
       styleRange(ws, rr, 1, rr, 1, TITLE_STYLE);
-      styleRange(ws, rr, 2, rr, 4, TITLE_STYLE);
+      styleRange(ws, rr, 2, rr, 5, TITLE_STYLE);
     });
-    for (let rr = 3; rr <= topFieldEnd; rr++) {
-      addMerge(ws, rr, 2, rr, 4);
+    lightRows.forEach((rr) => {
       styleRange(ws, rr, 1, rr, 1, SUBSECTION_STYLE);
-      styleRange(ws, rr, 2, rr, 4, FIELD_VALUE_STYLE);
-    }
+      styleRange(ws, rr, 2, rr, 5, SUBSECTION_STYLE);
+    });
 
-    if (techStart !== null) {
-      styleRange(ws, techStart, 1, techStart, 4, SUBSECTION_STYLE);
-      brief.techSpecs.forEach((_, i) => {
-        const rr = techStart + 1 + i;
-        styleRange(ws, rr, 2, rr, 4, ROW_VALUE_STYLE);
-      });
-    }
-
-    styleRange(ws, inclusionsHeaderIdx, 1, inclusionsHeaderIdx, 4, TABLE_HEADER_STYLE);
     inclusionLines.forEach((_, i) => {
       const rr = inclusionsHeaderIdx + 1 + i;
-      styleRange(ws, rr, 2, rr, 4, ROW_VALUE_STYLE);
+      addMerge(ws, rr, 2, rr, 3);
+      styleRange(ws, rr, 2, rr, 5, ROW_VALUE_STYLE);
     });
 
-    styleRange(ws, featuresHeaderIdx, 1, featuresHeaderIdx, 4, TABLE_HEADER_STYLE);
-    styleRange(ws, featuresHeaderIdx + 1, 1, featuresHeaderIdx + 1, 4, ROW_VALUE_STYLE);
-    featureLines.forEach((_, i) => {
-      const rr = featuresHeaderIdx + 2 + i;
-      styleRange(ws, rr, 2, rr, 4, ROW_VALUE_STYLE);
-    });
+    for (let i = 0; i < espRowCount; i++) {
+      const rr = espIntroIdx + 1 + i;
+      addMerge(ws, rr, 2, rr, 3);
+      styleRange(ws, rr, 2, rr, 5, ROW_VALUE_STYLE);
+    }
+    for (let i = 0; i < uspRowCount; i++) {
+      const rr = uspIntroIdx + 1 + i;
+      addMerge(ws, rr, 2, rr, 3);
+      styleRange(ws, rr, 2, rr, 5, ROW_VALUE_STYLE);
+    }
 
-    styleRange(ws, weaknessesHeaderIdx, 1, weaknessesHeaderIdx, 1, SUBSECTION_STYLE);
-    styleRange(ws, targetGroupIdx, 1, targetGroupIdx, 1, SUBSECTION_STYLE);
-    styleRange(ws, targetGroupIdx + 1, 1, targetGroupIdx + 1, 4, ROW_VALUE_STYLE);
-    styleRange(ws, samplePicsIdx, 1, samplePicsIdx, 1, SUBSECTION_STYLE);
-    styleRange(ws, samplePicsIdx + 1, 1, samplePicsIdx + 1, 4, ROW_VALUE_STYLE);
+    // The three freeform blank-or-filled value rows (Weaknesses, Target
+    // group, Sample Picture) - find them as "the row right after each
+    // strong divider that isn't itself a divider."
+    const weaknessRowIdx = strongRows[strongRows.length - 3] + 1;
+    const targetGroupRowIdx = strongRows[strongRows.length - 2] + 1;
+    const samplePicRowIdx = strongRows[strongRows.length - 1] + 1;
+    [weaknessRowIdx, targetGroupRowIdx, samplePicRowIdx].forEach((rr) => {
+      styleRange(ws, rr, 1, rr, 5, ROW_VALUE_STYLE);
+    });
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Marketing Guide");

@@ -251,6 +251,70 @@ git push -u origin main
 
 Every push to `main` auto-redeploys.
 
+## Marketing Guide Sheet: matching the real structure exactly
+
+Checked two real reference documents directly - SUP and FKT, two
+completely different product categories (an inflatable sports product and
+a pool chemical) - and found they share an identical section structure and
+color convention that the generator wasn't following at all:
+
+- **ITEM / BRAND NAME / DESCRIPTION** at the top, then an **INCLUSIONS**
+  table, then **CERTIFICATIONS (Link to the certificates)** and "Other
+  Compliance related informations" (both genuinely blank - that data
+  doesn't exist in a PD sheet), then a **PRODUCT SPECIFICATIONS** section -
+  a second, more detailed restatement of Article No./Material/Color/Size
+  plus whatever category-specific specs exist (load capacity, operating
+  pressure, coverage, pH, etc. - now pulled from any `techSpecs` entries
+  beyond the one used for Size), then Packaging size.
+- **IMPORTANT FEATURES TO HIGHLIGHT is split into two sub-groups** in both
+  reference documents: "These features are also offered by other
+  competitors" and "These features are underutilized. Can be positioned as
+  USPs." This maps directly onto data the parser already extracts
+  separately - ESPs and USPs - which were previously being flattened
+  together into one undifferentiated list, losing exactly the distinction
+  the real template is built around.
+- **Color convention**, confirmed identical in both files: strong orange
+  (`#FF9900`) marks top-level section dividers (ITEM, BRAND NAME, PRODUCT
+  SPECIFICATIONS, IMPORTANT FEATURES TO HIGHLIGHT, Weaknesses in our
+  product., Target group, Sample Picture); a lighter orange (`#F6B26B`)
+  marks sub-field labels within a section. **Green is never used anywhere
+  in this document** - the earlier version incorrectly used it for the
+  Inclusions/Features headers, borrowed from the Pre-inspection/Pre-QC
+  table-header convention, which doesn't apply here.
+- **"Weaknesses in our product."** (exact wording in both references, not
+  "Known weaknesses / trade-offs...") is left genuinely blank now rather
+  than reusing the PD sheet's review-analysis data - that data describes
+  *competitor* product complaints (correctly used to seed the Product
+  Brief's QC table), not an honest self-assessment of this specific
+  design's own limitations, which a PD sheet can't capture.
+- Renamed "Sample Pictures" to "Sample Picture" (singular, matching both
+  references).
+
+Verified against realistic data for both a post-optimized-sheet product
+(dimensions pulled from the Material & Workmanship text fallback) and a
+legacy-sheet product (dimensions from an explicit `techSpecs` entry), plus
+confirmed zero green fill anywhere in the output and exact-match styling
+on every section divider and sub-field across the whole sheet.
+
+## Marketing Guide Sheet: blank instead of "TODO" placeholders
+
+Every cell with no real source data used to show a repeated "TODO: benefit
+copy" / "TODO: expectation-setting note" / "TODO: who is this for?" string
+— noisy across a dozen+ rows, and meant deleting filler text before typing
+real content. Changed so any field with no PD-sheet-derivable data is
+genuinely blank instead: the section headers and structure stay intact
+(so the sheet still shows exactly what needs filling in), but nothing
+fabricated goes in the actual cells. The one exception is the "Mention all
+the product's features..." line, which stays as-is since it's verbatim
+instructional text from the reference template, not a generated
+placeholder — and the Sample Pictures note when the brief actually has
+extracted images, since that's real derived information, not a TODO.
+
+Also fixed while in there: the "Known weaknesses" content row(s) were
+missing their border/wrap styling entirely (a leftover gap from the
+previous formatting pass) - now styled consistently with every other
+content row.
+
 ## Marketing Guide Sheet field-mapping fixes
 
 Two content bugs surfaced on a real generated file: **SIZE** was coming out
