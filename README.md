@@ -251,6 +251,24 @@ git push -u origin main
 
 Every push to `main` auto-redeploys.
 
+## Marketing Guide Sheet field-mapping fixes
+
+Two content bugs surfaced on a real generated file: **SIZE** was coming out
+blank for any PD sheet without an explicit "Technical Specifications"
+sub-table (i.e. every current KPM/AKP/SSC-style sheet), because
+`findDimensionSpec` only ever looked in `brief.techSpecs` - it never fell
+back to the "DIMENSIONS" block that lives inside Material & Workmanship
+Instructions on those sheets instead. Fixed with a fallback that pulls it
+out of there when `techSpecs` doesn't have it.
+
+Separately, **PACKAGING SIZE** was dumping the *entire* packaging
+write-up (carton material, weight, shipping fees, everything) into a field
+that the reference document uses for just the carton dimension (e.g. "90 x
+40 x 22 cm"). Fixed by extracting just the "Packaging Dimensions — ..."
+line out of the full packaging text, falling back to the whole thing only
+if that specific line isn't present (so the field is never silently
+empty).
+
 ## Downstream doc formatting (colors, fonts, borders)
 
 The three downstream `.xlsx` files used to come out completely unstyled —

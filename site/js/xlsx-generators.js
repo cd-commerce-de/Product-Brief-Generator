@@ -106,9 +106,30 @@
     );
   }
 
+  // Dimensions live in brief.techSpecs only when the PD sheet had an
+  // explicit "Technical Specifications" sub-table (legacy LTF/SUP-style
+  // sheets). Post-optimized sheets (KPM/AKP/SSC-style) fold dimensions into
+  // the Material & Workmanship Instructions text as a "DIMENSIONS" block
+  // instead - fall back to pulling that out when techSpecs doesn't have it,
+  // rather than leaving the field blank.
   function findDimensionSpec(brief) {
     const spec = (brief.techSpecs || []).find((r) => /dimension|size/i.test(r.label));
-    return spec ? spec.value : "";
+    if (spec) return spec.value;
+    const m = /DIMENSIONS\n([\s\S]*?)(?:\n\n|$)/.exec(brief.materialInstructions || "");
+    return m ? m[1].trim() : "";
+  }
+
+  // "Packaging Size" should be the short carton dimension (e.g. "68 x 52 x
+  // 12 cm"), not the full packaging write-up (material, weight, shipping
+  // fees, etc.) that brief.packaging holds in full elsewhere in this doc
+  // and in the Product Brief itself. Pull just the "Packaging Dimensions"
+  // line out of that text; fall back to the whole thing only if that
+  // specific line isn't present, so the field is never silently empty.
+  function findPackagingSize(brief) {
+    const text = brief.packaging || "";
+    const m = /Packaging Dimensions\s*[—-]\s*(.+)/i.exec(text);
+    if (m) return m[1].trim();
+    return text;
   }
 
   // ---------- Pre-inspection Briefing Form ----------
@@ -312,7 +333,7 @@
       ["", "MATERIAL", brief.material || ""],
       ["", "SIZE", findDimensionSpec(brief) || ""],
       ["", "COLOR", brief.color || ""],
-      ["", "PACKAGING SIZE", brief.packaging || ""],
+      ["", "PACKAGING SIZE", findPackagingSize(brief)],
     ];
     const topFieldEnd = rows.length - 1;
 
