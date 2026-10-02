@@ -176,12 +176,23 @@
         <label>Pre-QC (in-house) Date <input id="f_preQcDate" type="text" placeholder="MM.DD.YYYY" /></label>
         <label>3rd Party Inspection Date <input id="f_inspectionDate" type="text" placeholder="MM.DD.YYYY" /></label>
       </div>
+      <label class="block">Production Status at Inspection <span class="hint">(optional, e.g. "70% finished, 20% packed")</span>
+        <input id="f_productionStatus" type="text" placeholder="e.g. 70% finished, 20% packed" />
+      </label>
 
       <label class="block">Quality Inspection Notes
         <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Product-specific QC instructions from the PD sheet (e.g. a load test) — carried into the Pre-QC Check as a custom test.</span>
         <textarea id="f_qualityInspectionNotes" rows="4"></textarea>
         <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_qualityInspectionNotes">+ Add bullet</button></div>
       </label>
+
+      <h3>Additional Pre-inspection Tests <span class="hint">(optional — the standard checks like package completeness, measurement, visual, and packaging are always included; add anything product-specific here, e.g. "Inflation test" for an inflatable product)</span></h3>
+      <div id="extraPreInspectionTable" class="editable-table"></div>
+      <button class="btn btn-small" id="btnAddExtraPreInspection">+ Add test</button>
+
+      <h3 style="margin-top:24px;">Additional Pre-QC Tests <span class="hint">(optional — same idea, for the Pre-QC Check's test/method list)</span></h3>
+      <div id="extraPreQcTable" class="editable-table"></div>
+      <button class="btn btn-small" id="btnAddExtraPreQc">+ Add test</button>
 
       <div class="nav-buttons">
         <button class="btn btn-ghost" data-back="2">&larr; Back</button>
@@ -282,7 +293,13 @@
     <p>Product Brief Generator · CD Commerce GmbH · data stays in your browser (local storage), nothing is uploaded to a server.</p>
   </footer>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- xlsx-js-style: a maintained fork of SheetJS (same 0.18.5 core, same
+       API - our existing read/parse code is unaffected) that adds the
+       ability to WRITE cell styles (bold, fills, borders, wrap). Plain
+       SheetJS community edition deliberately omits style writing entirely,
+       which is why the downstream .xlsx documents used to come out
+       completely unstyled. -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://unpkg.com/docx@8.5.0/build/index.iife.js"></script>
   <script src="js/xlsx-parser.js"></script>

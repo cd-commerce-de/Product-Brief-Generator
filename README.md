@@ -251,6 +251,82 @@ git push -u origin main
 
 Every push to `main` auto-redeploys.
 
+## Downstream doc formatting (colors, fonts, borders)
+
+The three downstream `.xlsx` files used to come out completely unstyled —
+plain black text, default column widths, no borders — because the library
+generating them (`xlsx.full.min.js`, plain SheetJS Community Edition)
+**deliberately does not support writing cell styles at all**, by design,
+to stay lightweight. This isn't a bug to work around in our own code; it's
+a hard wall in that specific library.
+
+Fixed by switching the CDN script to **`xlsx-js-style`**, a maintained fork
+with the exact same SheetJS 0.18.5 core and API (confirmed: our existing PD
+sheet parsing code needed zero changes and produces identical output) that
+adds style-writing on top. Checked the actual formatting (fonts, fills,
+borders, column widths, merged cells) of the real reference documents with
+openpyxl and matched it exactly:
+
+- Title bars and top-level fields: bold, orange `#FF9900` fill
+- Table header rows (Test/s, Methods, Inclusions, etc.): bold, green
+  `#00FF00` fill
+- Marketing Guide Sheet sub-section headers (Description, Technical
+  Specifications, etc.): bold, lighter orange `#F6B26B` fill
+- Body text: wrapped, top-aligned, thin borders throughout
+- Column widths and cell merges matching the reference files' exact
+  proportions (e.g. a wide ~35-58 character label/content column, not
+  Excel's cramped ~8.4 character default)
+
+Verified by generating real files with realistic data and checking every
+section's styling with an independent strict parser (not just "it opens
+without erroring") — title, field rows, table headers, and custom
+product-specific test rows all confirmed correct.
+
+## Improving the downstream docs
+
+Compared the actual reference Pre-inspection Briefing Form, Pre-QC Check,
+and Marketing Guide Sheet (the real, manually-filled SUP examples) against
+what the generators produced. The biggest gap: **the test/check content had
+zero editability** — every row was hardcoded in `xlsx-generators.js`, with
+no way to add the product-specific tests real inspections need (the SUP
+reference form has "Inflation test," "Stability and leak test," "Air
+retention test," "Deflation test" — none of which a stunt scooter or a
+mattress would ever need, and an inflatable board absolutely does).
+
+Fixed by adding, in Step 3:
+- **Additional Pre-inspection Tests** and **Additional Pre-QC Tests** —
+  editable add/remove tables (same pattern as the Technical Specifications
+  and QC Acceptable/Not Acceptable tables already had). The standard
+  baseline checks (package completeness, measurement, visual, packaging/
+  printing) stay fixed and automatic; anything product-specific goes here
+  and gets appended after that baseline in the generated `.xlsx`.
+- **Production Status at Inspection** — the reference forms include a line
+  like "70% finished, 20% packed," which is inspection-day status that
+  can't come from a PD sheet or exist before the inspection happens. Added
+  as its own optional field, since it's a genuinely different category of
+  data from everything else in Step 3.
+
+Also enriched the Marketing Guide Sheet with data the brief already has but
+wasn't using:
+- A full **Technical Specifications** block (every spec row, not just the
+  single dimension line) — marketing needs the complete numbers to write
+  accurate claims.
+- **"Known weaknesses / trade-offs to acknowledge"** now pulls the real
+  PD-sheet review-analysis content (the same market complaints that seed
+  the Product Brief's QC table) instead of a bare `TODO` placeholder —
+  reframed as things not to overclaim rather than QC criteria.
+- **Sample Pictures** now points to the Product Brief's actual extracted
+  images when present, instead of a blind "attach photos" prompt.
+
+What's still intentionally left as `TODO`: benefit copy per inclusion,
+target group, and the "features also offered by competitors" vs.
+"differentiators" split the real reference document makes. The real
+reference Marketing Guide Sheet runs to dozens of rows of original,
+product-specific copywriting (e.g. explaining *why* a rounded nose vs. a
+pointed nose matters to different buyers) — that's genuine marketing
+judgment a deterministic generator shouldn't fabricate, the same reasoning
+documented elsewhere in this README for not inventing persuasive copy.
+
 ## Speeding up the process further
 
 Beyond parsing the PD sheet, three things now cut down repeat typing across

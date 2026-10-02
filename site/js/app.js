@@ -273,6 +273,47 @@
     renderTechSpecTable();
   });
 
+  // ---------- Additional downstream-doc tests (Step 3) ----------
+  function renderExtraPreInspectionTable() {
+    const wrap = $("#extraPreInspectionTable");
+    wrap.innerHTML = "";
+    B().extraPreInspectionTests.forEach((row, idx) => {
+      wrap.appendChild(buildRow(
+        [
+          { key: "test", val: row.test, placeholder: "Test (e.g. Inflation test)", cls: "col-narrow" },
+          { key: "items", val: row.items, placeholder: "Items to be prepared for testing" },
+        ],
+        () => { B().extraPreInspectionTests.splice(idx, 1); renderExtraPreInspectionTable(); },
+        (key, val) => { B().extraPreInspectionTests[idx][key] = val; }
+      ));
+    });
+  }
+
+  $("#btnAddExtraPreInspection").addEventListener("click", () => {
+    B().extraPreInspectionTests.push({ test: "", items: "" });
+    renderExtraPreInspectionTable();
+  });
+
+  function renderExtraPreQcTable() {
+    const wrap = $("#extraPreQcTable");
+    wrap.innerHTML = "";
+    B().extraPreQcTests.forEach((row, idx) => {
+      wrap.appendChild(buildRow(
+        [
+          { key: "test", val: row.test, placeholder: "Test (e.g. Leakage test)", cls: "col-narrow" },
+          { key: "methods", val: row.methods, placeholder: "Method / acceptance criteria" },
+        ],
+        () => { B().extraPreQcTests.splice(idx, 1); renderExtraPreQcTable(); },
+        (key, val) => { B().extraPreQcTests[idx][key] = val; }
+      ));
+    });
+  }
+
+  $("#btnAddExtraPreQc").addEventListener("click", () => {
+    B().extraPreQcTests.push({ test: "", methods: "" });
+    renderExtraPreQcTable();
+  });
+
   function renderQcTable() {
     const wrap = $("#qcTable");
     wrap.innerHTML = "";
@@ -341,6 +382,7 @@
       b.sampleCount = $("#f_sampleCount").value;
       b.preQcDate = $("#f_preQcDate").value;
       b.inspectionDate = $("#f_inspectionDate").value;
+      b.productionStatus = $("#f_productionStatus").value;
       b.qualityInspectionNotes = $("#f_qualityInspectionNotes").value;
       // Learn from this brief for next time - supplier directory and the
       // Approval Contacts default both grow automatically, no extra step.
@@ -373,8 +415,11 @@
     $("#f_sampleCount").value = b.sampleCount;
     $("#f_preQcDate").value = b.preQcDate;
     $("#f_inspectionDate").value = b.inspectionDate;
+    $("#f_productionStatus").value = b.productionStatus;
     $("#f_qualityInspectionNotes").value = b.qualityInspectionNotes;
     renderSupplierPicker();
+    renderExtraPreInspectionTable();
+    renderExtraPreQcTable();
   }
 
   function renderSupplierPicker() {

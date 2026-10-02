@@ -29,6 +29,15 @@
       preQcDate: "",
       inspectionDate: "",
       sampleCount: "",
+      productionStatus: "", // e.g. "70% finished, 20% packed" - inspection-day status, feeds Pre-inspection/Pre-QC
+      // Downstream docs always include a fixed generic baseline (package
+      // completeness, measurement, visual, packaging/printing checks).
+      // These two arrays are PRODUCT-SPECIFIC tests added on top of that
+      // baseline (e.g. an inflatable product needs inflation/leakage/
+      // deflation tests a stunt scooter never would) - empty by default,
+      // fully editable in Step 3.
+      extraPreInspectionTests: [], // [{test, items}]
+      extraPreQcTests: [], // [{test, methods}]
       version: "1.0",
       versionLabel: "",
       productKey: "", // identifies "this product" for the one-per-product history (see storage.js)
