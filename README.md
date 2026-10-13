@@ -164,16 +164,20 @@ product-brief-app/
 │   ├── css/style.css
 │   └── js/
 │       ├── xlsx-parser.js      # PD-sheet -> structured data parser
-│       ├── xlsx-images.js      # extracts embedded PD-sheet images (raw zip parse)
+│       ├── xlsx-images.js      # extracts embedded PD-sheet images (raw zip parse), incl. pictures anchored on the Brief Input tab
+│       ├── brief-input.js      # maps the Product Brief Input tab onto the brief (components, QC rows, compliance, cartons)
 │       ├── defaults.js         # supplier directory + sticky field defaults
 │       ├── state.js            # in-memory brief state
-│       ├── storage.js          # localStorage product history (one record per product)
+│       ├── storage.js          # local (this browser) product history, one record per product
+│       ├── shared.js           # syncs that local copy with the shared team database
 │       ├── docx-generator.js   # builds the Product Brief .docx
 │       ├── xlsx-generators.js  # builds the 3 downstream .xlsx documents
 │       └── app.js              # UI wiring (5-step wizard)
 ├── api/
-│   └── gate.js               # password gate (see "Password protection" below)
-├── vercel.json                # routes every request through the gate
+│   ├── gate.js               # password gate (see "Password protection" below)
+│   ├── _auth.js              # the login check, shared by gate.js and store.js
+│   └── store.js              # shared version history (see "Shared version history")
+├── vercel.json                # routes page requests through the gate (not /api/*)
 └── README.md
 ```
 
@@ -295,6 +299,20 @@ Verified against realistic data for both a post-optimized-sheet product
 legacy-sheet product (dimensions from an explicit `techSpecs` entry), plus
 confirmed zero green fill anywhere in the output and exact-match styling
 on every section divider and sub-field across the whole sheet.
+
+## Marketing Guide Sheet: column layout (third reference, BRS)
+
+A third real reference (an office chair, "BRS") confirmed a layout detail the
+generator had wrong: everything from ITEM through PRODUCT SPECIFICATIONS puts
+its label in **column B**, but from **IMPORTANT FEATURES TO HIGHLIGHT**
+onward (both feature sub-groups, Weaknesses, Target group, Sample Picture)
+the whole section sits one column to the right, labels and content both
+starting in **column C**. The generator now does this, and "Technical
+Drawing Link" was replaced by "Artworks/Image/Color" (present in two of the
+three references; the other was a one-off). Verified by generating a sheet
+and checking each row's first filled column and fill color. Not yet done: a
+full side-by-side pass against BRS for fields only it has (Amazon size tier /
+FBA fees, shipping carton weight, Planned Sales and Profit, Competitor).
 
 ## Marketing Guide Sheet: blank instead of "TODO" placeholders
 
@@ -434,8 +452,8 @@ briefs:
   and all three downstream documents into a single `.zip`, instead of four
   separate download clicks.
 
-All four are per-browser (localStorage), same caveat as Product History -
-see "Known limitations".
+The supplier directory and sticky defaults are per-browser (localStorage) and
+are not part of the shared history.
 
 ## Fourth fix: signature line label running into the underline
 
@@ -487,6 +505,172 @@ link — producing files that failed to open in a strict parser. That was a
 test-environment artifact, not a real bug, but it's a reminder that any
 future local testing against this codebase must pin `docx@8.5.0` exactly
 (matching the CDN URL in `index.html`) or risk false failures.
+
+## Product Brief Input tab (the brief is built from the PD sheet)
+
+If the PD sheet has a tab whose name contains **"Brief Input"** (currently
+*Product Brief Input*), the tool builds the Product Brief from it instead of
+making the team retype it in Steps 2 and 3. Everything is found by its
+headings and column titles, not fixed row numbers, so extra rows are fine —
+but **keep these headings and column titles**: `PART A`, `SKU TABLE`,
+`PART B`, `PART C`, and the column headers (SKU / Color / Item carton…;
+Component / Instruction / SKU-specific detail / Image / Image caption /
+Applies to / Status; Parameter / Acceptable / Not acceptable / Defect photo /
+Test method).
+
+**How each part is used**
+- **Part A** → Item, Description (the technical one), Material, Inclusions
+  (a leading "1 x " is dropped), the compliance text (test-cost clause with
+  amounts in bold, requirement list, standard warranty sentence, test report
+  number). *Product category* is stored but doesn't drive anything yet.
+- **SKU table** → Article No. (one SKU per line), Color lines as
+  `<SKU suffix> - <colour>` (SSC01-SW + Black → "SW - Black"), and the carton
+  sizes the approved brief states under Packaging: an "individual carton
+  dimensions … weight" line is added, and a master-carton row that says
+  "(dimensions and weight per SKU table)" gets the real numbers. If SKUs have
+  different cartons, the lines become per-SKU a./b./c. entries.
+- **Part B** → one row of the Product Individualization table per component,
+  each instruction numbered (restarting at 1 per component). *SKU-specific
+  detail* prints under its instruction — lettered a./b./c. if the instruction
+  ends with ":", plain lines otherwise. The picture anchored in the **Image**
+  cell prints directly under that instruction, with its caption (Step 2 has a
+  switch to hide captions). A component named exactly **Packaging** is the
+  Packaging row.
+- **Yellow highlighting**: any sentence containing "sent separately" (the
+  approved briefs highlight these), and every row whose Status is **Pending**.
+- **Part C** → the QC table. The sheet says default rows **Odor, Finish,
+  Printing, Packaging** are added automatically but doesn't give their
+  wording, so the tool uses neutral placeholder wording of its own (not copied
+  from any brief). A Part C row about the same thing overrides the default and
+  keeps its own position; defaults not covered are added (Odor first, the rest
+  last). Defect photos print under *Not acceptable*.
+- **Compliance** is built only from what the sheet says (test-cost clause,
+  requirements, test report number). No standard wording, pictures or contact
+  names are added by the tool — anything a brief needs beyond that must be in
+  the sheet or typed in Step 3. The box understands `**bold**`.
+
+**Nothing from any sample brief is built into the tool.** The approved SSC
+brief was used only as a guide to layout, formatting and structure. The tool
+never reads content from a sample brief; every fact, name, number and sentence
+in a generated brief comes from the uploaded PD sheet or Step 3. The only
+fixed wording is structural: the section headings, the sign-off / alterations
+paragraphs that were already in the template, and two sentences *generated
+from the SKU table's numbers* ("The individual carton dimensions should be …").
+- Because the brief now carries its own pictures, the PD sheet's product /
+  reference gallery is **off by default** when this tab is present.
+
+**Other changes made to match the approved brief**: Arial 10 pt; plain (not
+bold or shaded) labels; ✓ / ✗ icons in the QC header; QC rows never split
+across pages; the "Alterations… directly to" sentence and its contacts in one
+paragraph (names come from Step 3 — nothing is pre-filled); and the sign-off "shown on page 1-N" now uses the
+document's real page count (it was hard-coded to 1-22).
+
+**Not in the PD sheet, so still typed in Step 3**: supplier name / address /
+contact / phone / email, PO number, date.
+
+**Known limits**
+- Wording is printed exactly as typed. Differences from an approved brief
+  ("must" vs "should", "Aluminium" vs "Aluminum", a colour name) are
+  differences in the sheet, not something the tool can know.
+- A "SKU-specific detail" line is printed as typed — including layout hints
+  like "(top to bottom)". Put hints like that in the caption column (and turn
+  captions off) or leave them out.
+- Pictures are only as sharp as the copies in the sheet (Google exports them
+  as small thumbnails, ≤ 360 px here). Pictures with a transparent background
+  can arrive with a **black** background from Google's export — the SSC
+  bar-end-plug picture does; insert such pictures flattened (JPEG).
+- Pictures are kept on the current brief only (saved history snapshots and
+  the shared team history hold the text, not the pictures); restoring an
+  older version reattaches pictures wherever the instruction is unchanged.
+- Re-importing the sheet replaces components and QC rows with the sheet's
+  version (Step 2 edits to those are overwritten) but never overwrites a
+  Compliance text you edited.
+- The default QC rows (Odor, Finish, Printing, Packaging) use neutral
+  placeholder wording. Add a row of the same kind to Part C — or give us the
+  official default wording — to use yours.
+
+## Shared version history (everyone on the team sees the same products)
+
+Saved products and their version history can live in a small shared database
+instead of each person's own browser, so anyone who logs in sees the same
+cards, the same revisions, and **who saved each one**. Until the database is
+connected the app behaves exactly as before (history stays in your own
+browser), so nothing breaks if you skip this.
+
+### One-time setup (about 5 minutes, no code)
+
+1. In Vercel, open this project and go to the **Storage** tab (the exact
+   wording and layout of Vercel's dashboard changes from time to time; what
+   you want is a **Redis** database from **Upstash**, available through
+   Vercel's Marketplace on the free plan).
+2. Create the database and **connect it to this project** for all
+   environments. Vercel adds the connection settings for you.
+3. Check **Settings → Environment Variables**: you should see either
+   `KV_REST_API_URL` + `KV_REST_API_TOKEN`, or `UPSTASH_REDIS_REST_URL` +
+   `UPSTASH_REDIS_REST_TOKEN` (the app accepts either pair). You don't need
+   to copy anything anywhere.
+4. **Deployments → Redeploy** (new environment variables only take effect on
+   a fresh deployment).
+5. Open the app. On **Product History** (or Step 4) the status line should
+   turn green: *"Shared with your team."* If anything saved on your browser
+   before this, a button appears — **"Share N products saved only on this
+   browser"** — click it once to add them to the shared history.
+
+### Using it
+
+- Step 4 has a **Your name** box. It's remembered on that browser and shown
+  next to each save ("by Leah"), so the team can see who changed what.
+- **Save this product** saves locally and uploads in one go. If you're
+  offline, the save is kept and uploads itself on the next sync.
+- The app syncs when it opens, when you open Step 4 / Product History / the
+  "Open saved brief" window, when you click **Refresh**, and when you return
+  to the tab after a minute or more. It doesn't poll constantly, which keeps
+  database usage small (an idle refresh is a single database command).
+- **Two people saving the same product at the same time** both keep their
+  saves — each saved version is stored as its own entry, so one can't
+  overwrite the other.
+- **Delete is for everyone.** The confirmation says so when shared history is
+  on. Anything saved but not yet shared is never wiped by a sync.
+- **What each product keeps:** its latest 25 saves (the same limit as before).
+  The "current" version of a product is its newest save.
+- **Not shared:** product photos (re-import the PD sheet to bring them back
+  on your own computer), the supplier directory, and remembered defaults.
+
+### How it works (for whoever maintains this)
+
+- `api/store.js` is a small serverless function that talks to Upstash Redis
+  over plain HTTPS (no npm packages, so the project stays build-free). It
+  uses the same Basic Auth login as the site (`api/_auth.js`).
+- Each saved version is its own field in a Redis hash (`pbg:p:<key>`), added
+  with `HSETNX` so it can never overwrite another. `pbg:o:<key>` orders them
+  to trim the oldest beyond 25, and `pbg:updated` records when each product
+  last changed (`ZADD GT`, which only moves forward). A first version of this
+  stored each product as one blob and silently lost a save when two people
+  saved at the same instant — caught by a multi-browser test and replaced
+  with this layout.
+- `js/shared.js` merges the database's history into the browser's local copy
+  by entry id (nothing is lost on either side) and retries failed uploads.
+- Each save is capped at 400 KB (real briefs are roughly 3-40 KB without
+  photos).
+
+### Honest caveats
+
+- This was built and tested against a **simulated** Upstash database, not a
+  live one: the API, the sync logic across several simulated browsers
+  (simultaneous saves, offline saves, deletion, old pre-sharing data), and
+  the on-screen flow were all exercised, but no one has yet connected it to a
+  real Vercel + Upstash account from this side. If the status line stays
+  yellow or red after setup, the message on it says why; the usual causes are
+  forgetting to redeploy, or the variables being attached to only some
+  environments.
+- Upstash's free plan has monthly usage limits and Vercel's integration terms
+  can change; check their current pricing page. This app keeps its use low,
+  but a very large team saving constantly could outgrow a free plan.
+- Anyone with the site login can read, add to, and delete any product. There
+  are no per-person permissions, and the "Your name" label is typed in, not
+  verified.
+- History order uses each computer's clock, so a badly wrong clock could
+  place a save out of order.
 
 ## Reverse-engineering pass against a real manually-written brief
 
@@ -552,10 +736,14 @@ happens after the brief is drafted, not something a parser can extract.
   `TODO` prompts — auto-generating persuasive marketing copy from a spec
   sheet would produce generic, unreliable text, which is worse than an
   honest blank.
-- **Product history is per-browser.** Saved products live in that browser's
-  `localStorage`, not a shared database — they won't show up on a
-  colleague's machine. Good enough for drafting; not a replacement for the
-  Product Brief Shared Drive / ClickUp Masterlist as the system of record.
+- **Shared history needs a one-time database setup.** Until a database is
+  connected in Vercel (see "Shared version history"), product history stays
+  in each person's own browser (`localStorage`), exactly as it used to. It's
+  still a drafting aid, not a replacement for the Product Brief Shared Drive
+  / ClickUp Masterlist as the system of record.
+- **Product photos aren't shared.** They're large and come straight from the
+  PD sheet, so only the text of each saved version goes to the shared
+  history. Re-import the PD sheet to bring photos back on your computer.
 - **Product Key matching is a heuristic, not guaranteed unique.** It
   defaults to the first SKU in Article No. (or the Item name if that's
   blank). If a PD sheet's SKU format changes between uploads for what's
@@ -617,11 +805,7 @@ exists to test against.
    the static-site architecture here can absorb that without a rewrite.
 2. **ClickUp sync** — push new/updated briefs as tasks in the Product Brief
    Masterlist automatically (ClickUp API), replacing the manual step.
-3. **Shared version history** — swap `js/storage.js`'s localStorage calls for
-   calls to a small database (or Google Sheets as a lightweight DB) so
-   product history is visible across the team, matching the "any team
-   member can identify which version is used on which PO" success
-   indicator, and resolving the "per-browser" limitation above.
+3. ~~Shared version history~~ — built, see "Shared version history".
 4. **Parse a "PO & Supplier Information" PD sheet section**, once one
    exists in a real sample file (see above) — would let Step 3 auto-fill on
    re-upload the same way Step 2 already does.

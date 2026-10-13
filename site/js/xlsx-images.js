@@ -18,6 +18,10 @@
   const JPEG_QUALITY = 0.72;
   const MAX_HERO_IMAGES = 4;
   const MAX_FEATURE_IMAGES = 10;
+  // Brief-input photos sit in the brief next to an instruction (not in a
+  // gallery), and the sheet's own copies are already thumbnails - keep them
+  // at least that sharp but still small enough to store.
+  const BRIEF_IMAGE_MAX_DIM = 640;
 
   function parseXml(text) {
     return new DOMParser().parseFromString(text, "application/xml");
@@ -28,16 +32,20 @@
     return partPath.slice(0, idx + 1) + "_rels/" + partPath.slice(idx + 1) + ".rels";
   }
 
-  async function resizeImageBlob(blob) {
+  async function resizeImageBlob(blob, maxDim) {
     const bitmap = await createImageBitmap(blob);
     let { width, height } = bitmap;
-    const scale = Math.min(1, MAX_DIM / Math.max(width, height));
+    const scale = Math.min(1, (maxDim || MAX_DIM) / Math.max(width, height));
     width = Math.max(1, Math.round(width * scale));
     height = Math.max(1, Math.round(height * scale));
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
+    // JPEG has no transparency - without a white base, transparent PNG
+    // artwork (logos, deck graphics) would turn black.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
     ctx.drawImage(bitmap, 0, 0, width, height);
     if (bitmap.close) bitmap.close();
     const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
@@ -135,5 +143,92 @@
     return { hero, feature };
   }
 
-  global.PBImages = { extractImages };
+  // Pictures on the "Product Brief Input" tab. Each one is anchored to the
+  // cell it was inserted in (Part B column E = instruction photo, Part C
+  // column F = defect photo), so the anchor row tells us which instruction
+  // or QC row it belongs to. Returns
+  //   [{ row, col, rowOff, colOff, image: {dataUrl,width,height} }]
+  // with row/col 1-based like Excel (E32 => row 32, col 5). Several pictures
+  // in one cell are ordered top-to-bottom by the caller using rowOff/colOff.
+  async function extractBriefInputImages(arrayBuffer) {
+    const out = [];
+    let zip;
+    try { zip = await JSZip.loadAsync(arrayBuffer); } catch (e) { return out; }
+    const workbookFile = zip.file("xl/workbook.xml");
+    const wbRelsFile = zip.file("xl/_rels/workbook.xml.rels");
+    if (!workbookFile || !wbRelsFile) return out;
+
+    const wbDoc = parseXml(await workbookFile.async("text"));
+    const sheet = Array.from(wbDoc.getElementsByTagName("sheet"))
+      .map((el) => ({ name: el.getAttribute("name") || "", rId: el.getAttribute("r:id") }))
+      .find((sh) => /brief input/i.test(sh.name));
+    if (!sheet) return out;
+
+    const wbRelsDoc = parseXml(await wbRelsFile.async("text"));
+    const relMap = {};
+    Array.from(wbRelsDoc.getElementsByTagName("Relationship")).forEach((el) => {
+      relMap[el.getAttribute("Id")] = el.getAttribute("Target");
+    });
+    const target = relMap[sheet.rId];
+    if (!target) return out;
+    const sheetPath = "xl/" + target.replace(/^\.\.\//, "");
+    const sheetRelsFile = zip.file(relsPathFor(sheetPath));
+    if (!sheetRelsFile) return out;
+
+    const sheetRelsDoc = parseXml(await sheetRelsFile.async("text"));
+    let drawingTarget = null;
+    Array.from(sheetRelsDoc.getElementsByTagName("Relationship")).forEach((el) => {
+      if ((el.getAttribute("Type") || "").endsWith("/drawing")) drawingTarget = el.getAttribute("Target");
+    });
+    if (!drawingTarget) return out;
+
+    const drawingPath = "xl/drawings/" + drawingTarget.split("/").pop();
+    const drawingFile = zip.file(drawingPath);
+    if (!drawingFile) return out;
+    const drawingDoc = parseXml(await drawingFile.async("text"));
+
+    const drawingRelsFile = zip.file(relsPathFor(drawingPath));
+    const drawingRelMap = {};
+    if (drawingRelsFile) {
+      const drawingRelsDoc = parseXml(await drawingRelsFile.async("text"));
+      Array.from(drawingRelsDoc.getElementsByTagName("Relationship")).forEach((el) => {
+        drawingRelMap[el.getAttribute("Id")] = el.getAttribute("Target");
+      });
+    }
+
+    const num = (el, tag) => {
+      const n = el && el.getElementsByTagNameNS("*", tag)[0];
+      return n ? Number(n.textContent) || 0 : 0;
+    };
+    const anchors = Array.from(drawingDoc.getElementsByTagNameNS("*", "twoCellAnchor"))
+      .concat(Array.from(drawingDoc.getElementsByTagNameNS("*", "oneCellAnchor")));
+
+    for (const anchor of anchors) {
+      const blipEls = anchor.getElementsByTagNameNS("*", "blip");
+      if (!blipEls.length) continue;
+      const embedId = blipEls[0].getAttributeNS(
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed"
+      );
+      const mediaTarget = drawingRelMap[embedId];
+      const mediaFile = mediaTarget && zip.file("xl/media/" + mediaTarget.split("/").pop());
+      if (!mediaFile) continue;
+      const from = anchor.getElementsByTagNameNS("*", "from")[0];
+      if (!from) continue;
+      try {
+        const blob = await mediaFile.async("blob");
+        out.push({
+          row: num(from, "row") + 1,
+          col: num(from, "col") + 1,
+          rowOff: num(from, "rowOff"),
+          colOff: num(from, "colOff"),
+          image: await resizeImageBlob(blob, BRIEF_IMAGE_MAX_DIM),
+        });
+      } catch (e) {
+        // Unsupported/corrupt image - skip it rather than fail the whole import
+      }
+    }
+    return out;
+  }
+
+  global.PBImages = { extractImages, extractBriefInputImages };
 })(window);

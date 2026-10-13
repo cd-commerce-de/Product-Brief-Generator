@@ -312,25 +312,36 @@
   }
 
   // ---------- Marketing Guide Sheet ----------
-  // Structure matches two real reference documents checked directly (SUP
-  // and FKT, two very different product categories) - both share this
-  // exact section order and label wording, confirming it's the standard
-  // template rather than a one-off: ITEM/BRAND NAME/DESCRIPTION -> INCLUSIONS
-  // table -> CERTIFICATIONS -> PRODUCT SPECIFICATIONS (a second, more
-  // detailed restatement of article/material/color/size plus any extra
+  // Structure matches three real reference documents checked directly (SUP,
+  // FKT, BRS - an inflatable sports product, a pool chemical, and an office
+  // chair) - all three share this exact section order, label wording, and
+  // column layout, confirming it's the standard template rather than a
+  // one-off: ITEM/BRAND NAME/DESCRIPTION -> INCLUSIONS table ->
+  // CERTIFICATIONS -> PRODUCT SPECIFICATIONS (a second, more detailed
+  // restatement of article/material/color/size plus any extra
   // category-specific specs) -> IMPORTANT FEATURES TO HIGHLIGHT, split into
   // two sub-groups (features competitors also have vs. underused
   // differentiators - mapped from the PD sheet's ESP vs. USP sections,
   // which this template's two sub-groups directly correspond to) ->
   // Weaknesses in our product -> Target group -> Sample Picture.
   //
-  // Color convention, confirmed identical across both reference files:
+  // Color convention, confirmed identical across all three reference files:
   // strong orange (#FF9900) marks top-level section dividers (ITEM, BRAND
   // NAME, PRODUCT SPECIFICATIONS, IMPORTANT FEATURES TO HIGHLIGHT,
   // Weaknesses in our product., Target group, Sample Picture); a lighter
   // orange (#F6B26B) marks sub-field labels within a section. Green is
   // never used anywhere in this document - that's specific to the
   // Pre-inspection/Pre-QC table headers.
+  //
+  // COLUMN LAYOUT - also confirmed identical in all three references, and
+  // easy to get wrong (an earlier version did): everything from ITEM
+  // through the end of PRODUCT SPECIFICATIONS has its label in column B,
+  // with content/sub-columns starting at C. But starting at "IMPORTANT
+  // FEATURES TO HIGHLIGHT" and continuing through Weaknesses/Target
+  // group/Sample Picture, the WHOLE section shifts one column right -
+  // labels and content both start at column C instead of B, with column B
+  // left empty throughout. This is consistent across all three documents,
+  // not a one-off formatting choice.
   function generateMarketingXlsx(brief) {
     const uspSection = findRawSection(brief, ["usp"]);
     const espSection = findRawSection(brief, ["esp"]);
@@ -338,83 +349,85 @@
     const espLines = espSection ? espSection.text.split("\n").filter(Boolean) : [];
 
     const rows = [[]];
-    const strongRows = []; // row indices to receive the strong-orange section-divider style
-    const lightRows = []; // row indices to receive the light-orange sub-field style
+    // Each entry: { row, labelCol } - labelCol is 1 (column B) for the
+    // top portion of the sheet, 2 (column C) for the shifted section.
+    const strongRows = [];
+    const lightRows = [];
 
-    function pushStrong(row) { rows.push(row); strongRows.push(rows.length - 1); return rows.length - 1; }
-    function pushLight(row) { rows.push(row); lightRows.push(rows.length - 1); return rows.length - 1; }
+    function pushStrong(row, labelCol) { rows.push(row); strongRows.push({ row: rows.length - 1, labelCol }); return rows.length - 1; }
+    function pushLight(row, labelCol) { rows.push(row); lightRows.push({ row: rows.length - 1, labelCol }); return rows.length - 1; }
 
-    pushStrong(["", "ITEM", brief.item || ""]);
-    pushStrong(["", "BRAND NAME", brief.brandName || ""]);
-    pushLight(["", "DESCRIPTION", brief.description || ""]);
+    pushStrong(["", "ITEM", brief.item || ""], 1);
+    pushStrong(["", "BRAND NAME", brief.brandName || ""], 1);
+    pushLight(["", "DESCRIPTION", brief.description || ""], 1);
 
     rows.push([]);
-    const inclusionsHeaderIdx = pushLight(["", "INCLUSIONS", "Item/Part", "", "Benefit", "Expectation Setting"]);
+    const inclusionsHeaderIdx = pushLight(["", "INCLUSIONS", "Item/Part", "", "Benefit", "Expectation Setting"], 1);
     const inclusionLines = (brief.inclusions || "").split("\n").filter(Boolean);
     inclusionLines.forEach((line) => rows.push(["", "", line, "", "", ""]));
 
     rows.push([]);
-    pushLight(["", "CERTIFICATIONS\n(Link to the certificates)", ""]);
-    pushLight(["", "Other Compliance related informations", ""]);
+    pushLight(["", "CERTIFICATIONS\n(Link to the certificates)", ""], 1);
+    pushLight(["", "Other Compliance related informations", ""], 1);
 
     rows.push([]);
-    pushStrong(["", "PRODUCT SPECIFICATIONS"]);
+    pushStrong(["", "PRODUCT SPECIFICATIONS"], 1);
     rows.push([]);
-    pushLight(["", "Link POE Table", ""]);
-    pushLight(["", "Article No.", brief.articleNo || ""]);
-    pushLight(["", "Technical Drawing Link", ""]);
-    pushLight(["", "Material", brief.material || ""]);
-    pushLight(["", "Color", brief.color || ""]);
-    pushLight(["", "Size", findDimensionSpec(brief) || ""]);
+    pushLight(["", "Link POE Table", ""], 1);
+    pushLight(["", "Article No.", brief.articleNo || ""], 1);
+    pushLight(["", "Artworks/Image/Color", ""], 1);
+    pushLight(["", "Material", brief.material || ""], 1);
+    pushLight(["", "Color", brief.color || ""], 1);
+    pushLight(["", "Size", findDimensionSpec(brief) || ""], 1);
     // Any tech specs beyond the one used for "Size" (e.g. operating
     // pressure, load capacity, coverage) - the category-specific extras
-    // both reference documents include here.
+    // all three reference documents include here.
     const dimLabelMatch = /dimension|size/i;
     (brief.techSpecs || []).filter((s) => !dimLabelMatch.test(s.label)).forEach((spec) => {
-      pushLight(["", spec.label, spec.value]);
+      pushLight(["", spec.label, spec.value], 1);
     });
-    pushLight(["", "Packaging size", findPackagingSize(brief)]);
+    pushLight(["", "Packaging size", findPackagingSize(brief)], 1);
 
     rows.push([]);
-    const featuresHeaderIdx = pushStrong(["", "IMPORTANT FEATURES TO HIGHLIGHT\nMention all the product's features, no matter how small - better too many than too few. All features must be explained in a comprehensible way."]);
-    const espIntroIdx = pushLight(["", "These features are also offered by other competitors in the market.", "", "", "Benefit"]);
+    pushStrong(["", "", "IMPORTANT FEATURES TO HIGHLIGHT\nMention all the product's features, no matter how small - better too many than too few. All features must be explained in a comprehensible way."], 2);
+    const espIntroIdx = pushLight(["", "", "These features are also offered by other competitors in the market.", "", "Benefit"], 2);
     espLines.forEach((line) => rows.push(["", "", line, "", ""]));
     const espRowCount = espLines.length;
 
     rows.push([]);
-    const uspIntroIdx = pushLight(["", "These features are underutilized. Can be positioned as USPs", "", "", "Benefit"]);
+    const uspIntroIdx = pushLight(["", "", "These features are underutilized. Can be positioned as USPs", "", "Benefit"], 2);
     uspLines.forEach((line) => rows.push(["", "", line, "", ""]));
     const uspRowCount = uspLines.length;
 
     rows.push([]);
-    pushStrong(["", "Weaknesses in our product."]);
+    pushStrong(["", "", "Weaknesses in our product."], 2);
     // Genuinely not PD-sheet-derivable: the PD sheet's review-analysis data
     // is about competitor products, not an honest self-assessment of this
     // specific design's own limitations - left blank rather than reused
     // from a different (related but not equivalent) source.
-    rows.push([""]);
+    rows.push(["", ""]);
 
     rows.push([]);
-    pushStrong(["", "Target group"]);
-    rows.push([""]);
+    pushStrong(["", "", "Target group"], 2);
+    rows.push(["", ""]);
 
     rows.push([]);
-    pushStrong(["", "Sample Picture"]);
-    rows.push(["", brief.includeImages && brief.images && (brief.images.hero.length || brief.images.feature.length)
+    pushStrong(["", "", "Sample Picture"], 2);
+    rows.push(["", "", brief.includeImages && brief.images && (brief.images.hero.length || brief.images.feature.length)
       ? "See the Product Brief's Product Image(s) and Reference Images for source photos to use here."
       : ""]);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    setColWidths(ws, [4, 26, 36, 20, 34, 30]);
+    setColWidths(ws, [4, 22, 32, 20, 34, 30]);
 
-    strongRows.forEach((rr) => {
-      addMerge(ws, rr, 2, rr, 5);
-      styleRange(ws, rr, 1, rr, 1, TITLE_STYLE);
-      styleRange(ws, rr, 2, rr, 5, TITLE_STYLE);
+    strongRows.forEach(({ row: rr, labelCol }) => {
+      addMerge(ws, rr, labelCol + 1, rr, 5);
+      styleRange(ws, rr, labelCol, rr, labelCol, TITLE_STYLE);
+      styleRange(ws, rr, labelCol + 1, rr, 5, TITLE_STYLE);
     });
-    lightRows.forEach((rr) => {
-      styleRange(ws, rr, 1, rr, 1, SUBSECTION_STYLE);
-      styleRange(ws, rr, 2, rr, 5, SUBSECTION_STYLE);
+    lightRows.forEach(({ row: rr, labelCol }) => {
+      styleRange(ws, rr, labelCol, rr, labelCol, SUBSECTION_STYLE);
+      styleRange(ws, rr, labelCol + 1, rr, 5, SUBSECTION_STYLE);
     });
 
     inclusionLines.forEach((_, i) => {
@@ -437,11 +450,12 @@
     // The three freeform blank-or-filled value rows (Weaknesses, Target
     // group, Sample Picture) - find them as "the row right after each
     // strong divider that isn't itself a divider."
-    const weaknessRowIdx = strongRows[strongRows.length - 3] + 1;
-    const targetGroupRowIdx = strongRows[strongRows.length - 2] + 1;
-    const samplePicRowIdx = strongRows[strongRows.length - 1] + 1;
+    const weaknessRowIdx = strongRows[strongRows.length - 3].row + 1;
+    const targetGroupRowIdx = strongRows[strongRows.length - 2].row + 1;
+    const samplePicRowIdx = strongRows[strongRows.length - 1].row + 1;
     [weaknessRowIdx, targetGroupRowIdx, samplePicRowIdx].forEach((rr) => {
-      styleRange(ws, rr, 1, rr, 5, ROW_VALUE_STYLE);
+      addMerge(ws, rr, 2, rr, 5);
+      styleRange(ws, rr, 2, rr, 5, ROW_VALUE_STYLE);
     });
 
     const wb = XLSX.utils.book_new();

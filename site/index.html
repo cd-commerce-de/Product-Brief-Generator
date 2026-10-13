@@ -45,6 +45,9 @@
         PO Information</code>, pulling out our target spec (not the competitor columns) from every feature row,
         plus embedded product photos. Older two-stage PD sheets (a separate
         <code>Initial Product Specifications</code> tab) are still supported as a legacy fallback.</p>
+      <p class="hint"><strong>New:</strong> if the sheet also has a <code>Product Brief Input</code> tab (supplier
+        instructions per component, SKU table, QC limits and their pictures), the brief is built from it — Steps 2
+        and 3 then become a review instead of typing.</p>
 
       <div id="activeProductNote" class="hint hidden" style="background:#fdf3ef; border:1px solid var(--accent); border-radius:8px; padding:10px 14px; margin-bottom:16px;"></div>
 
@@ -56,6 +59,7 @@
       <div id="importStatus" class="status"></div>
 
       <div id="importPreview" class="hidden">
+        <div id="briefInputPreview" class="brief-input-banner hidden"></div>
         <h3>Detected fields</h3>
         <div id="overviewPreview" class="kv-grid"></div>
         <div id="imagesPreviewWrap" class="hidden">
@@ -99,7 +103,19 @@
         <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_inclusions">+ Add bullet</button></div>
       </label>
 
-      <label class="block">Material &amp; Workmanship Instructions
+      <div id="componentsBlock" class="hidden">
+        <h3>Material &amp; Workmanship Instructions <span class="hint">(from the Product Brief Input tab)</span></h3>
+        <p class="hint" style="margin-top:-8px;">One box per component. Each instruction is numbered in the brief; text after
+          <em>SKU-specific detail</em> prints underneath it (as a./b./c. when the instruction ends with a colon).
+          Sentences saying a file "will be sent separately", and any row marked <em>Pending</em>, are highlighted yellow.
+          Pictures print directly under their instruction.</p>
+        <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-bottom:10px;">
+          <input type="checkbox" id="f_showCaptions" checked style="width:auto;" />
+          Print picture captions under the pictures (turn off if the captions in the sheet are only labels for the team)
+        </label>
+        <div id="componentsEditor"></div>
+      </div>
+      <label class="block" id="legacyMaterialBlock">Material &amp; Workmanship Instructions
         <textarea id="f_materialInstructions" rows="10"></textarea>
         <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_materialInstructions">+ Add bullet</button></div>
       </label>
@@ -108,7 +124,7 @@
       <div id="techSpecTable" class="editable-table"></div>
       <button class="btn btn-small" id="btnAddTechSpec">+ Add spec row</button>
 
-      <label class="block">Packaging
+      <label class="block" id="legacyPackagingBlock">Packaging
         <textarea id="f_packaging" rows="6"></textarea>
         <div class="textarea-toolbar"><button type="button" class="btn btn-small" data-bullet-for="f_packaging">+ Add bullet</button></div>
       </label>
@@ -154,6 +170,9 @@
       </label>
 
       <label class="block">Compliance &amp; Test Reports
+        <span class="hint" style="display:block; font-weight:400; margin-bottom:6px;">Tip: <code>**bold**</code> makes text bold.
+          When the PD sheet has a Product Brief Input tab this box is filled from it (test-cost clause, requirements, test
+          report number) — nothing else is added; edit freely.</span>
         <textarea id="f_compliance" rows="8" placeholder="e.g. Test Report No. ... demonstrating compliance to EN 60335-1:2012..."></textarea>
         <div class="textarea-toolbar">
           <button type="button" class="btn btn-small" data-bullet-for="f_compliance">+ Add bullet</button>
@@ -171,7 +190,7 @@
 
       <h3>Quality Inspection Setup <span class="hint">(feeds the Pre-inspection Briefing Form &amp; Pre-QC Check in Step 5)</span></h3>
       <div class="form-grid">
-        <label>Brand Name <input id="f_brandName" type="text" placeholder="e.g. Heimfleiss" /></label>
+        <label>Brand Name <input id="f_brandName" type="text" placeholder="your brand name" /></label>
         <label># Samples to Inspect <input id="f_sampleCount" type="text" placeholder="e.g. 10 pcs" /></label>
         <label>Pre-QC (in-house) Date <input id="f_preQcDate" type="text" placeholder="MM.DD.YYYY" /></label>
         <label>3rd Party Inspection Date <input id="f_inspectionDate" type="text" placeholder="MM.DD.YYYY" /></label>
@@ -216,6 +235,9 @@
         </label>
       </div>
       <label class="block">Save label <input id="f_versionLabel" type="text" placeholder="optional note, e.g. 'post-supplier-review'" /></label>
+      <label class="block">Your name <span class="hint" style="font-weight:400;">(shown next to your saves in the shared history, so the team can see who changed what)</span>
+        <input id="f_savedBy" type="text" placeholder="e.g. Veronica" />
+      </label>
 
       <div class="export-actions">
         <button id="btnExportDocx" class="btn btn-primary">⬇ Download .docx (Google Docs compatible)</button>
@@ -224,7 +246,8 @@
       </div>
       <div id="exportStatus" class="status"></div>
 
-      <h3>Saved products (this browser)</h3>
+      <h3>Saved products</h3>
+      <div class="shared-status"></div>
       <div id="versionList" class="product-list"></div>
 
       <div class="nav-buttons">
@@ -273,9 +296,12 @@
     <!-- PRODUCT HISTORY (not part of the wizard sequence - browse/open/delete any saved product) -->
     <section class="panel hidden" id="panel-6">
       <h2>Product History</h2>
-      <p class="hint">One card per product — generating a brief 5 times for the same product updates this one card
+      <p class="hint">One card per product — saving a brief 5 times for the same product updates this one card
         and adds to its history below, it never creates a separate entry. Click "View history" on a card to see every
-        past save with a one-click Restore.</p>
+        past save, who made it, and restore any of them. When shared history is connected, this list is the same for
+        everyone on the team. Product photos aren't shared (they're large and come from the PD sheet) — re-import the
+        PD sheet to bring them back on your computer.</p>
+      <div class="shared-status"></div>
       <div id="historyList" class="product-list"></div>
     </section>
 
@@ -304,8 +330,10 @@
   <script src="https://unpkg.com/docx@8.5.0/build/index.iife.js"></script>
   <script src="js/xlsx-parser.js"></script>
   <script src="js/xlsx-images.js"></script>
+  <script src="js/brief-input.js"></script>
   <script src="js/state.js"></script>
   <script src="js/storage.js"></script>
+  <script src="js/shared.js"></script>
   <script src="js/defaults.js"></script>
   <script src="js/docx-generator.js"></script>
   <script src="js/xlsx-generators.js"></script>

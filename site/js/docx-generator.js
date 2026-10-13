@@ -25,6 +25,10 @@
     VerticalPositionRelativeFrom, TextWrappingType, LevelFormat, PageOrientation,
   } = docx;
 
+  // Body text in the approved briefs is Arial 10pt (size is in half-points).
+  const FONT = "Arial";
+  const BODY_SIZE = 20;
+
   // Reference template renders Product Inclusions and the Material &
   // Workmanship Instructions breakdown as auto-numbered lists (1. 2. 3.),
   // not plain unnumbered lines - this id ties paragraphs below to the
@@ -58,7 +62,7 @@
 
   function p(text, opts = {}) {
     return new Paragraph({
-      children: [new TextRun({ text: text || "", bold: !!opts.bold, size: opts.size || 22 })],
+      children: [new TextRun({ text: text || "", bold: !!opts.bold, size: opts.size || BODY_SIZE, font: FONT })],
       spacing: { after: opts.after ?? 120 },
       heading: opts.heading,
       alignment: opts.align,
@@ -87,27 +91,39 @@
   function makeNumberedLinesFactory() {
     const numberingConfigs = [];
     let counter = 0;
-    function numberedLines(text, opts = {}) {
-      const lines = (text || "").split("\n").filter((l) => l.trim());
-      if (!lines.length) return [];
+
+    // A fresh numbering definition per list so every list restarts at 1.
+    // Level 0 is "1." and level 1 is "a." - the same two levels, with the
+    // same indents, as the numbered lists in the approved briefs.
+    function newListRef() {
       const reference = `${NUMBERING_REF}-${counter++}`;
       numberingConfigs.push({
         reference,
-        levels: [{
-          level: 0,
-          format: LevelFormat.DECIMAL,
-          text: "%1.",
-          alignment: AlignmentType.START,
-          style: { paragraph: { indent: { left: 360, hanging: 360 } } },
-        }],
+        levels: [
+          {
+            level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.START,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+          },
+          {
+            level: 1, format: LevelFormat.LOWER_LETTER, text: "%2.", alignment: AlignmentType.START,
+            style: { paragraph: { indent: { left: 1440, hanging: 360 } } },
+          },
+        ],
       });
+      return reference;
+    }
+
+    function numberedLines(text, opts = {}) {
+      const lines = (text || "").split("\n").filter((l) => l.trim());
+      if (!lines.length) return [];
+      const reference = newListRef();
       return lines.map((line) => new Paragraph({
-        children: [new TextRun({ text: line, bold: !!opts.bold, size: opts.size || 22 })],
-        spacing: { after: opts.after ?? 60 },
+        children: [new TextRun({ text: line, bold: !!opts.bold, size: opts.size || BODY_SIZE, font: FONT })],
+        spacing: { after: opts.after ?? 40, line: 240 },
         numbering: { reference, level: 0 },
       }));
     }
-    return { numberedLines, numberingConfigs };
+    return { numberedLines, newListRef, numberingConfigs };
   }
 
   function cell(children, widthDxa, opts = {}) {
@@ -121,6 +137,7 @@
       // on label cells, not a strong gray - matching that exactly rather
       // than the heavier shading used earlier.
       shading: opts.shaded ? { fill: "F8F8F8" } : undefined,
+      margins: opts.noMargins ? undefined : { top: 100, bottom: 100, left: 100, right: 100 },
     });
   }
 
@@ -143,8 +160,8 @@
     const rows = pairs.map(
       ([label, value, opts = {}]) => new TableRow({
         children: [
-          cell(p(label, { bold: true }), labelW, plain ? { noBorder: true } : { shaded: true }),
-          cell(Array.isArray(value) ? value : multiline(value), valueW, { ...opts, noBorder: plain }),
+          cell(p(label, { bold: plain }), labelW, plain ? { noBorder: true } : {}),
+          cell(Array.isArray(value) ? value : multiline(value, { after: 20 }), valueW, { ...opts, noBorder: plain }),
         ],
       })
     );
@@ -180,7 +197,7 @@
 
   function dividerRow(label) {
     return new TableRow({
-      children: [cell(p(label, { bold: true }), CONTENT_WIDTH, { shaded: true, columnSpan: 2 })],
+      children: [cell(p(label, { bold: true }), CONTENT_WIDTH, { columnSpan: 2 })],
     });
   }
 
@@ -200,74 +217,189 @@
     return [new Paragraph({ children, spacing: { after: 150 } })];
   }
 
-  function productIndividualizationTable(brief, numberedLines) {
-    const labelW = dxa(25);
+  // ---------- rich text helpers ----------
+  function run(text, o = {}) {
+    return new TextRun({
+      text, font: FONT, size: o.size || BODY_SIZE, bold: !!o.bold, color: o.color,
+      highlight: o.highlight ? "yellow" : undefined,
+    });
+  }
+
+  // "**bold**" markers inside a line -> alternating plain/bold runs.
+  function inlineRuns(text, base = {}) {
+    return String(text || "").split("**").map((part, i) => run(part, { ...base, bold: base.bold || i % 2 === 1 }));
+  }
+
+  // One image per paragraph, left-aligned, at the picture's own pixel size
+  // (capped) - the approved briefs stack several pictures in one cell.
+  function pictureParagraph(im, o = {}) {
+    const maxW = o.maxWidth || 480;
+    const w = Math.max(1, Math.min(im.width, maxW));
+    const h = Math.max(1, Math.round(w * (im.height / im.width)));
+    return new Paragraph({
+      children: [new ImageRun({ data: im.dataUrl || im.data, transformation: { width: w, height: h } })],
+      spacing: { before: 60, after: o.after ?? 80 },
+      indent: o.indent !== undefined ? { left: o.indent } : undefined,
+      alignment: o.align,
+      keepNext: o.keepNext,
+    });
+  }
+
+  // ---------- Product Individualization table ----------
+  // One row per component. Each instruction is a numbered line (restarting
+  // at 1 in every component); "SKU-specific detail" goes underneath as a./b./c.
+  // when the instruction ends with ":" and as plain lines otherwise; pictures
+  // sit directly under the instruction they belong to, with their caption.
+  // Instructions that say a file "will be sent separately" (and any row whose
+  // status is Pending) are highlighted yellow, as in the approved briefs.
+  function componentCell(items, listRef, showCaptions) {
+    const out = [];
+    items.forEach((it) => {
+      const segs = PBBriefInput.splitHighlights(it.text, it.status);
+      out.push(new Paragraph({
+        children: segs.map((sg) => run(sg.text, { highlight: sg.hl })),
+        numbering: { reference: listRef, level: 0 },
+        spacing: { after: 40, line: 240 },
+      }));
+      const detail = String(it.skuDetail || "").split("\n").map((l) => l.trim()).filter(Boolean);
+      const lettered = /:\s*$/.test(String(it.text || "").trim());
+      detail.forEach((l) => out.push(new Paragraph({
+        children: [run(l)],
+        numbering: lettered ? { reference: listRef, level: 1 } : undefined,
+        indent: lettered ? undefined : { left: 720 },
+        spacing: { after: 20, line: 240 },
+      })));
+      const pics = it.images || [];
+      pics.forEach((im) => out.push(pictureParagraph(im, { indent: 720 })));
+      if (pics.length && it.caption && showCaptions) {
+        out.push(new Paragraph({ children: [run(it.caption)], indent: { left: 720 }, spacing: { after: 80, line: 240 } }));
+      }
+    });
+    return out.length ? out : [p("")];
+  }
+
+  function productIndividualizationTable(brief, numberedLines, newListRef) {
+    const useComponents = Array.isArray(brief.components) && brief.components.length > 0;
+    // The approved briefs use a narrow label column for components and the
+    // same ~11% for "Product Inclusions".
+    const labelW = dxa(useComponents ? 11 : 25);
     const valueW = CONTENT_WIDTH - labelW;
     const rows = [];
 
     rows.push(new TableRow({
       children: [
-        cell(p("Product Inclusions", { bold: true }), labelW, { shaded: true }),
+        cell(p("Product Inclusions"), labelW),
         cell(numberedLines(brief.inclusions), valueW),
       ],
     }));
 
-    rows.push(dividerRow("Material and Workmanship Instructions"));
-    splitIntoSubRows(brief.materialInstructions).forEach(([label, content]) => {
-      rows.push(new TableRow({
-        children: [
-          cell(p(label, { bold: true }), labelW, { shaded: true }),
-          cell(numberedLines(content), valueW),
-        ],
-      }));
-    });
-    if (brief.techSpecs && brief.techSpecs.length) {
-      rows.push(new TableRow({
-        children: [
-          cell(p("Technical Specifications", { bold: true }), labelW, { shaded: true }),
-          cell(brief.techSpecs.map((r) => p(`${r.label}: ${r.value}`, { after: 40 })), valueW),
-        ],
-      }));
-    }
+    rows.push(dividerRow("Material and workmanship instructions"));
 
-    rows.push(new TableRow({
-      children: [
-        cell(p("Packaging", { bold: true }), labelW, { shaded: true }),
-        cell(numberedLines(brief.packaging), valueW),
-      ],
-    }));
-
-    if (brief.includeImages && brief.images && brief.images.feature && brief.images.feature.length) {
+    if (useComponents) {
+      brief.components.forEach((c) => {
+        const items = (c.items || []).filter((it) => (it.text || "").trim());
+        if (!items.length) return;
+        rows.push(new TableRow({
+          children: [
+            cell(p(c.name || ""), labelW),
+            cell(componentCell(items, newListRef(), brief.showCaptions !== false), valueW),
+          ],
+        }));
+      });
+    } else {
+      splitIntoSubRows(brief.materialInstructions).forEach(([label, content]) => {
+        rows.push(new TableRow({
+          children: [
+            cell(p(label), labelW),
+            cell(numberedLines(content), valueW),
+          ],
+        }));
+      });
+      if (brief.techSpecs && brief.techSpecs.length) {
+        rows.push(new TableRow({
+          children: [
+            cell(p("Technical Specifications"), labelW),
+            cell(brief.techSpecs.map((r) => p(`${r.label}: ${r.value}`, { after: 40 })), valueW),
+          ],
+        }));
+      }
       rows.push(new TableRow({
         children: [
-          cell(p("Reference Images", { bold: true }), labelW, { shaded: true }),
-          cell(imageParagraphs(brief.images.feature, 130), valueW),
+          cell(p("Packaging"), labelW),
+          cell(numberedLines(brief.packaging), valueW),
         ],
       }));
+      if (brief.includeImages && brief.images && brief.images.feature && brief.images.feature.length) {
+        rows.push(new TableRow({
+          children: [
+            cell(p("Reference Images"), labelW),
+            cell(imageParagraphs(brief.images.feature, 130), valueW),
+          ],
+        }));
+      }
     }
 
     return table([labelW, valueW], rows);
   }
 
-  function qcTable(rows) {
-    const w1 = dxa(25), w2 = dxa(37.5), w3 = CONTENT_WIDTH - w1 - w2;
+  // ---------- QC table ----------
+  // PARAMETER | ACCEPTABLE (green tick) | NOT ACCEPTABLE (red cross): bold
+  // centred headers, bold parameter names, centred text, defect photos
+  // stacked under the "not acceptable" text.
+  function qcTable(rows, assets) {
+    const w1 = dxa(24.6), w2 = dxa(37.7), w3 = CONTENT_WIDTH - w1 - w2;
+    const icon = (a) => a ? [new Paragraph({
+      alignment: AlignmentType.CENTER, spacing: { after: 0 },
+      children: [new ImageRun({ data: a.data, transformation: { width: 39, height: 39 } })],
+    })] : [];
+    const head = (t, a) => cell([p(t, { bold: true, align: AlignmentType.CENTER, after: 40 }), ...icon(a)], t === "PARAMETER" ? w1 : (t === "ACCEPTABLE" ? w2 : w3));
     const header = new TableRow({
-      children: [
-        cell(p("Parameter", { bold: true, align: AlignmentType.CENTER }), w1, { shaded: true }),
-        cell(p("Acceptable", { bold: true, align: AlignmentType.CENTER }), w2, { shaded: true }),
-        cell(p("Not Acceptable", { bold: true, align: AlignmentType.CENTER }), w3, { shaded: true }),
-      ],
+      cantSplit: true,
+      children: [head("PARAMETER"), head("ACCEPTABLE", assets && assets.check), head("NOT ACCEPTABLE", assets && assets.cross)],
     });
-    const body = (rows || []).map(
-      (r) => new TableRow({
+    const centred = (text) => String(text || "").split("\n").map((l) => p(l, { align: AlignmentType.CENTER, after: 40 }));
+    const body = (rows || []).map((r) => {
+      const notAcc = centred(r.notAcceptable);
+      (r.images || []).forEach((im) => notAcc.push(pictureParagraph(im, { align: AlignmentType.CENTER, maxWidth: 260 })));
+      // A row (text + its photos) never splits across pages - the photo
+      // stays with the limits it illustrates, as in the approved briefs.
+      return new TableRow({
+        cantSplit: true,
         children: [
-          cell(p(r.parameter), w1),
-          cell(multiline(r.acceptable), w2),
-          cell(multiline(r.notAcceptable), w3),
+          cell(p(r.parameter, { bold: true }), w1),
+          cell(centred(r.acceptable), w2),
+          cell(notAcc, w3),
         ],
-      })
-    );
+      });
+    });
     return table([w1, w2, w3], [header, ...body]);
+  }
+
+  // ---------- compliance ----------
+  // Lines may use **bold**; blank lines become small gaps.
+  function complianceParagraphs(text) {
+    const out = [];
+    String(text || "").split("\n").forEach((line) => {
+      if (!line.trim()) { out.push(p("", { after: 60 })); return; }
+      out.push(new Paragraph({ children: inlineRuns(line), spacing: { after: 80 } }));
+    });
+    return out;
+  }
+
+  // The two QC header icons (format only) bundled with the app.
+  async function loadAssets() {
+    const spec = {
+      check: ["img/qc-check.png", 39, 39],
+      cross: ["img/qc-cross.png", 39, 39],
+    };
+    const out = {};
+    for (const [key, [path, width, height]] of Object.entries(spec)) {
+      try {
+        const resp = await fetch(path);
+        out[key] = { data: new Uint8Array(await resp.arrayBuffer()), width, height };
+      } catch (e) { /* a missing picture must never block the export */ }
+    }
+    return out;
   }
 
   // Full-width branded banner (logo lockup on the CD Commerce brand
@@ -310,7 +442,7 @@
       children: [
         new Paragraph({
           alignment: AlignmentType.RIGHT,
-          children: [new TextRun({ children: [PageNumber.CURRENT] })],
+          children: [new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: BODY_SIZE })],
         }),
       ],
     });
@@ -318,7 +450,8 @@
 
   async function generateDocx(brief) {
     const children = [];
-    const { numberedLines, numberingConfigs } = makeNumberedLinesFactory();
+    const { numberedLines, newListRef, numberingConfigs } = makeNumberedLinesFactory();
+    const assets = await loadAssets();
 
     const halfW = dxa(50);
     children.push(table([halfW, CONTENT_WIDTH - halfW], [
@@ -349,7 +482,7 @@
       ["Description", brief.description],
       ["Material", brief.material],
       ["Color", brief.color],
-    ]));
+    ], 22));
 
     children.push(p("", { after: 200 }));
 
@@ -360,20 +493,35 @@
     }
 
     children.push(p("I. PRODUCT INDIVIDUALIZATION", { bold: true, after: 150, keepNext: true }));
-    children.push(productIndividualizationTable(brief, numberedLines));
+    children.push(productIndividualizationTable(brief, numberedLines, newListRef));
     children.push(p("", { after: 200 }));
 
     children.push(p("II. COMPLIANCE", { bold: true, after: 100, keepNext: true }));
-    children.push(...multiline(brief.compliance, { after: 200 }));
+    children.push(...complianceParagraphs(brief.compliance));
+    children.push(p("", { after: 120 }));
 
     children.push(p("III. TYPICAL PRODUCTION MISTAKES/QUALITY CHECK ACCEPTABLE LIMITS", { bold: true, after: 150, keepNext: true }));
-    children.push(qcTable(brief.qcRows));
+    children.push(qcTable(brief.qcRows, assets));
     children.push(p("", { after: 200 }));
 
-    children.push(p("Alterations and additions (in terms of Quantity, Quality, Product Packing or Carton Packing) to this contract must be made in writing directly to:", { after: 80 }));
-    children.push(...multiline(brief.approvalContacts, { after: 200 }));
+    // One paragraph, as in the approved brief: the sentence followed directly
+    // by the contact names (typed in Step 3, separate lines are joined).
+    const contacts = String(brief.approvalContacts || "").split("\n").map((l) => l.trim()).filter(Boolean).join(" ");
+    children.push(new Paragraph({
+      spacing: { after: 200 },
+      children: [run("Alterations and additions (in terms of Quantity, Quality, Product Packing or Carton Packing) to this contract must be made in writing directly to" + (contacts ? " " + contacts.replace(/^:\s*/, "") : ":"))],
+    }));
 
-    children.push(p("Herewith I confirm that the product sample will be produced exactly as stated in the Product Briefing Agreement. I confirm to use the exact same materials as shown on page 1-22 as agreed with the customer. As well I confirm that the order details above will be met.", { after: 300 }));
+    // "page 1-N" is the document's own total page count (a Word field), so it
+    // is right whatever length the brief turns out to be.
+    children.push(new Paragraph({
+      spacing: { after: 300 },
+      children: [
+        run("Herewith I confirm that the product sample will be produced exactly as stated in the Product Briefing Agreement. I confirm to use the exact same materials as shown on page 1-"),
+        new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: BODY_SIZE }),
+        run(" as agreed with the customer. As well I confirm that the order details above will be met."),
+      ],
+    }));
 
     // A "\n" inside a single text run is not a line break in Word - it's
     // silently collapsed, which is why the line and the label used to run
@@ -395,6 +543,7 @@
     ]));
 
     const doc = new Document({
+      styles: { default: { document: { run: { font: FONT, size: BODY_SIZE } } } },
       numbering: { config: numberingConfigs },
       sections: [{
         properties: {

@@ -222,3 +222,39 @@ h3 { margin-top: 28px; margin-bottom: 10px; font-size: 15px; }
 .footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
 
 code { background: #f0f1f3; padding: 1px 6px; border-radius: 4px; font-size: 12.5px; }
+
+/* Shared-history status line (Step 4 and Product History) */
+.shared-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  margin: 6px 0 14px; padding: 9px 12px; border: 1px solid var(--line);
+  border-radius: 8px; font-size: 13px; line-height: 1.45; background: #fafafa;
+}
+.shared-status .msg { flex: 1 1 280px; }
+.shared-status .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #aaa; }
+.shared-status .dot-ok { background: var(--ok); }
+.shared-status .dot-warn { background: #d9a400; }
+.shared-status .dot-err { background: #b3251e; }
+.product-card .pending { color: #9a6b00; font-weight: 600; }
+
+/* Product Brief Input: Step 1 banner + Step 2 components editor */
+.brief-input-banner {
+  background: #f1f8f1; border: 1px solid #9ccc9c; border-radius: 8px;
+  padding: 10px 14px; margin: 0 0 16px; font-size: 13.5px; line-height: 1.5;
+}
+.brief-input-banner.warn { background: #fff8e6; border-color: #e0b84c; }
+.comp-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 14px; background: #fff; }
+.comp-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.comp-head input { font-weight: 600; }
+.comp-item { display: grid; grid-template-columns: 28px 1fr 150px auto; gap: 6px 8px; align-items: start; padding: 8px 0; border-top: 1px dashed var(--line); }
+.comp-item .num { color: var(--muted); font-size: 13px; padding-top: 10px; text-align: right; }
+.comp-item textarea, .comp-item select, .comp-item input { font-size: 13.5px; }
+.comp-item .detail, .comp-item .pics { grid-column: 2 / 4; }
+.comp-item .tools { display: flex; gap: 4px; }
+.comp-item .tools button { padding: 4px 8px; }
+.comp-item .generated-tag { font-size: 11px; color: var(--muted); }
+.comp-item .pics { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.comp-item .pics figure { margin: 0; position: relative; }
+.comp-item .pics img { max-height: 70px; border: 1px solid var(--line); border-radius: 4px; display: block; }
+.comp-item .pics button { position: absolute; top: -6px; right: -6px; border-radius: 50%; width: 18px; height: 18px; padding: 0; font-size: 11px; line-height: 16px; }
+.comp-item .pics input { flex: 1 1 180px; }
+.qc-photo-badge { font-size: 12px; color: var(--muted); white-space: nowrap; padding: 0 4px; }

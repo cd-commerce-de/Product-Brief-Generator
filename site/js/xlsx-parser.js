@@ -311,6 +311,208 @@
     return notes;
   }
 
+
+  // ---------- "Product Brief Input" tab ----------
+  // The team's supplier-facing content, filled in per product directly in
+  // the PD sheet so the brief doesn't have to be typed again in the tool.
+  // Layout (found by its headings and column titles, not fixed row numbers,
+  // so extra rows or a slightly shifted layout still parse):
+  //   PART A  label | value pairs (product ident, item, technical
+  //           description, material, category, inclusions, test report no.,
+  //           compliance requirements, test cost clause)
+  //   SKU TABLE  one row per SKU: color/finish + item and master carton
+  //           dimensions/weights + pieces per master carton
+  //   PART B  per-component supplier instructions (component | instruction |
+  //           SKU-specific detail | image | caption | applies to | status)
+  //   PART C  product-specific QC limits (parameter | acceptable | not
+  //           acceptable | defect photo | test method)
+  // Pictures are anchored to cells in the sheet; they're attached afterwards
+  // by attachBriefInputImages() using each picture's row.
+  function parseBriefInputSheet(ws) {
+    if (!ws) return null;
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+    const firstRow = range.s.r + 1; // Excel row number of rows[0]
+    const rows = sheetToRows(ws);
+    const colCount = Math.max(...rows.map((r) => r.length), 8);
+    const cells = rows.map((r) => rowToArray(r, colCount));
+    const excelRow = (i) => firstRow + i;
+    const find = (re, from = 0) => {
+      for (let i = from; i < cells.length; i++) if (re.test(cells[i][0] || cells[i][1] || "")) return i;
+      return -1;
+    };
+    const lastNonEmpty = (arr, from) => {
+      for (let c = arr.length - 1; c >= from; c--) if (arr[c]) return arr[c];
+      return "";
+    };
+
+    const partA = find(/^part a\b(?!2)/i);
+    const skuT = find(/sku table/i);
+    const partB = find(/^part b\b/i);
+    const partC = find(/^part c\b/i);
+    if (partA === -1 && partB === -1) return null; // not a brief-input layout
+
+    const out = {
+      sheetName: "Product Brief Input",
+      productIdent: "", item: "", description: "", material: "", category: "",
+      inclusions: "", testReportNo: "", complianceRequirements: "", testCostClause: "",
+      skus: [], components: [], qcRows: [],
+      imageCols: { partB: 5, partC: 6 },
+      warnings: [],
+    };
+
+    // ---- Part A: label | value ----
+    if (partA !== -1) {
+      const end = [skuT, partB, partC].filter((x) => x > partA).sort((a, b) => a - b)[0] || cells.length;
+      const rules = [
+        [/product ident/i, "productIdent"],
+        [/^item\b/i, "item"],
+        [/technical description|^description/i, "description"],
+        [/^material/i, "material"],
+        [/product category|^category/i, "category"],
+        [/^inclusion/i, "inclusions"],
+        [/test report/i, "testReportNo"],
+        [/compliance requirement/i, "complianceRequirements"],
+        [/test cost/i, "testCostClause"],
+      ];
+      for (let i = partA + 1; i < end; i++) {
+        const label = cells[i][0] || cells[i][1];
+        if (!label) continue;
+        const value = lastNonEmpty(cells[i], 2);
+        const rule = rules.find(([re]) => re.test(label));
+        if (rule && value) out[rule[1]] = value;
+      }
+    }
+
+    // ---- SKU table ----
+    if (skuT !== -1) {
+      const end = [partB, partC].filter((x) => x > skuT).sort((a, b) => a - b)[0] || cells.length;
+      let h = -1;
+      for (let i = skuT + 1; i < end; i++) if (cells[i].some((c) => /^sku$/i.test(c))) { h = i; break; }
+      if (h !== -1) {
+        const col = {};
+        cells[h].forEach((t, c) => {
+          if (/^sku/i.test(t)) col.sku = c;
+          else if (/colou?r|finish/i.test(t)) col.color = c;
+          else if (/item carton/i.test(t) && /weight/i.test(t)) col.itemW = c;
+          else if (/item carton/i.test(t)) col.itemDims = c;
+          else if (/master carton/i.test(t) && /weight/i.test(t)) col.masterW = c;
+          else if (/master carton/i.test(t)) col.masterDims = c;
+          else if (/pcs|pieces/i.test(t)) col.pcs = c;
+        });
+        for (let i = h + 1; i < end; i++) {
+          const r = cells[i];
+          const sku = col.sku !== undefined ? r[col.sku] : "";
+          if (!sku) continue;
+          const get = (k) => (col[k] !== undefined ? r[col[k]] : "");
+          out.skus.push({
+            sku, color: get("color"), itemCarton: get("itemDims"), itemCartonWeight: get("itemW"),
+            masterCarton: get("masterDims"), masterCartonWeight: get("masterW"), pcsPerMaster: get("pcs"),
+          });
+        }
+      } else {
+        out.warnings.push("SKU table heading found but no header row with a 'SKU' column.");
+      }
+    }
+
+    // ---- Part B: component instructions ----
+    if (partB !== -1) {
+      const end = partC > partB ? partC : cells.length;
+      let h = -1;
+      for (let i = partB + 1; i < end; i++) {
+        if (cells[i].some((c) => /^component/i.test(c)) && cells[i].some((c) => /instruction/i.test(c))) { h = i; break; }
+      }
+      if (h === -1) {
+        out.warnings.push("Part B heading found but no header row (Component / Instruction ...).");
+      } else {
+        const col = {};
+        cells[h].forEach((t, c) => {
+          if (/^component/i.test(t)) col.component = c;
+          else if (/instruction/i.test(t)) col.text = c;
+          else if (/sku-specific|sku specific/i.test(t)) col.sku = c;
+          else if (/caption/i.test(t)) col.caption = c;
+          else if (/^image/i.test(t)) { col.image = c; out.imageCols.partB = c + 1; }
+          else if (/applies/i.test(t)) col.applies = c;
+          else if (/status/i.test(t)) col.status = c;
+        });
+        let current = null;
+        for (let i = h + 1; i < end; i++) {
+          const r = cells[i];
+          const text = col.text !== undefined ? r[col.text] : "";
+          const name = col.component !== undefined ? r[col.component] : "";
+          if (!text) continue; // numbered-but-empty template rows
+          const compName = name || (current ? current.name : "Component");
+          if (!current || current.name !== compName) {
+            current = { name: compName, kind: /^packaging$/i.test(compName) ? "packaging" : "main", items: [] };
+            out.components.push(current);
+          }
+          current.items.push({
+            row: excelRow(i),
+            text,
+            skuDetail: col.sku !== undefined ? r[col.sku] : "",
+            caption: col.caption !== undefined ? r[col.caption] : "",
+            appliesTo: col.applies !== undefined ? r[col.applies] : "",
+            status: col.status !== undefined ? r[col.status] : "",
+            images: [],
+          });
+        }
+      }
+    }
+
+    // ---- Part C: QC limits ----
+    if (partC !== -1) {
+      let h = -1;
+      for (let i = partC + 1; i < cells.length; i++) {
+        if (cells[i].some((c) => /^parameter/i.test(c))) { h = i; break; }
+      }
+      if (h === -1) {
+        out.warnings.push("Part C heading found but no header row (Parameter / Acceptable ...).");
+      } else {
+        const col = {};
+        cells[h].forEach((t, c) => {
+          if (/^parameter/i.test(t)) col.param = c;
+          else if (/not acceptable/i.test(t)) col.notAcc = c;
+          else if (/^acceptable/i.test(t)) col.acc = c;
+          else if (/photo/i.test(t)) { col.photo = c; out.imageCols.partC = c + 1; }
+          else if (/method|sample size/i.test(t)) col.method = c;
+        });
+        for (let i = h + 1; i < cells.length; i++) {
+          const r = cells[i];
+          const param = col.param !== undefined ? r[col.param] : "";
+          if (!param) continue;
+          out.qcRows.push({
+            row: excelRow(i),
+            parameter: param,
+            acceptable: col.acc !== undefined ? r[col.acc] : "",
+            notAcceptable: col.notAcc !== undefined ? r[col.notAcc] : "",
+            method: col.method !== undefined ? r[col.method] : "",
+            images: [],
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Hands each picture to the instruction / QC row it is anchored on. When
+  // several pictures share a cell they are ordered top-to-bottom, then
+  // left-to-right (the sheet stacks them with row offsets).
+  function attachBriefInputImages(briefInput, anchors) {
+    if (!briefInput || !anchors || !anchors.length) return 0;
+    const sorted = anchors.slice().sort((a, b) =>
+      a.row - b.row || a.rowOff - b.rowOff || a.col - b.col || a.colOff - b.colOff);
+    const items = {};
+    briefInput.components.forEach((c) => c.items.forEach((it) => { items[it.row] = it; }));
+    const qc = {};
+    briefInput.qcRows.forEach((q) => { qc[q.row] = q; });
+    let attached = 0;
+    sorted.forEach((a) => {
+      const wantsQc = a.col === briefInput.imageCols.partC;
+      const target = (wantsQc ? qc[a.row] : items[a.row]) || items[a.row] || qc[a.row];
+      if (target) { target.images.push(a.image); attached++; }
+    });
+    return attached;
+  }
+
   function parseWorkbookFile(arrayBuffer) {
     const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
 
@@ -320,6 +522,8 @@
     const finalWs = findSheet(workbook, (n) => /final product spec/i.test(n));
     const initialWs = findSheet(workbook, (n) => /initial product spec/i.test(n));
     const qualityWs = findSheet(workbook, (n) => /quality inspection/i.test(n));
+    const briefInputWs = findSheet(workbook, (n) => /brief input/i.test(n));
+    const briefInput = parseBriefInputSheet(briefInputWs);
 
     let specWs = finalWs;
     let specSource = "Final Product Specifications";
@@ -380,6 +584,7 @@
 
     return {
       meta: { specSource, sheetNames: workbook.SheetNames },
+      briefInput,
       overview,
       sections: sections.map((s) => ({ title: s.title, text: sectionToPlainText(s) })),
       guessed: {
@@ -400,5 +605,5 @@
     };
   }
 
-  global.PBParser = { parseWorkbookFile };
+  global.PBParser = { parseWorkbookFile, attachBriefInputImages };
 })(window);

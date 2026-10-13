@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/gate" }
+    { "source": "/((?!api/).*)", "destination": "/api/gate" }
   ],
   "functions": {
     "api/gate.js": {

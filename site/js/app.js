@@ -58,8 +58,9 @@
     });
     if (n === 1) renderActiveProductNote();
     if (n === 2) fillReviewForm();
-    if (n === 4) { fillExportForm(); renderProductList("#versionList"); }
-    if (n === 6) renderProductList("#historyList");
+    if (n === 4) { fillExportForm(); renderProductList("#versionList"); PBShared.pull(); }
+    if (n === 6) { renderProductList("#historyList"); PBShared.pull(); }
+    renderSharedStatus();
   }
 
   $$("[data-next]").forEach((btn) =>
@@ -145,12 +146,56 @@
           console.error(imgErr);
           setStatus("#importStatus", `Parsed successfully (source tab: ${parsed.meta.specSource}). Couldn't read images from this file.`, "ok");
         }
+
+        // The "Product Brief Input" tab (if the sheet has one) becomes the
+        // brief's content. Its pictures are read in their own pass, then
+        // matched to the instruction / QC row each one is anchored on.
+        if (parsed.briefInput) {
+          let attached = 0;
+          try {
+            const anchors = await PBImages.extractBriefInputImages(buffer);
+            attached = PBParser.attachBriefInputImages(parsed.briefInput, anchors);
+          } catch (biErr) {
+            console.error(biErr);
+          }
+          PBBriefInput.apply(B(), parsed.briefInput);
+          // The brief now carries its own pictures next to each instruction,
+          // so the PD sheet's product/reference gallery is off by default.
+          B().includeImages = false;
+          $("#f_includeImages").checked = false;
+          renderBriefInputBanner(parsed.briefInput, attached);
+        } else {
+          $("#briefInputPreview").classList.add("hidden");
+        }
       } catch (err) {
         console.error(err);
         setStatus("#importStatus", "Couldn't parse this file — is it a standard PD sheet .xlsx? " + err.message, "error");
       }
     };
     reader.readAsArrayBuffer(file);
+  }
+
+  function renderBriefInputBanner(bi, attached) {
+    const el = $("#briefInputPreview");
+    const items = bi.components.reduce((n, c) => n + c.items.length, 0);
+    const pending = bi.components.reduce((n, c) => n + c.items.filter((i) => /^pending$/i.test(i.status || "")).length, 0);
+    const parts = [
+      `<strong>Product Brief Input tab found.</strong> ${bi.components.length} component${bi.components.length === 1 ? "" : "s"}`
+        + ` (${items} instruction${items === 1 ? "" : "s"}), ${bi.skus.length} SKU${bi.skus.length === 1 ? "" : "s"},`
+        + ` ${bi.qcRows.length} QC row${bi.qcRows.length === 1 ? "" : "s"}, ${attached} picture${attached === 1 ? "" : "s"}.`,
+      "The brief's header, components, packaging, QC table and compliance text were filled from it - check them in Steps 2 and 3.",
+    ];
+    if (pending) parts.push(`${pending} instruction${pending === 1 ? " is" : "s are"} marked <em>Pending</em> (highlighted yellow in the brief).`);
+    if (!bi.skus.length) parts.push("No SKUs were found in the SKU table, so Article No. and carton sizes weren't filled.");
+    bi.warnings.forEach((w) => parts.push(escapeHtml(w)));
+    el.innerHTML = parts.map((t) => `<div>${t}</div>`).join("");
+    el.classList.toggle("warn", !!(bi.warnings.length || !bi.skus.length));
+    el.classList.remove("hidden");
+  }
+
+  function derivePackagingFromComponents() {
+    const b = B();
+    if (b.components && b.components.length) b.packaging = PBBriefInput.packagingText(b.components) || b.packaging;
   }
 
   function renderImagesPreview(images) {
@@ -251,6 +296,94 @@
     $("#f_knownIssues").value = b.knownIssues;
     renderTechSpecTable();
     renderQcTable();
+    renderComponentsEditor();
+  }
+
+  $("#f_showCaptions").addEventListener("change", (e) => { B().showCaptions = e.target.checked; });
+
+  // ---------- Step 2: components editor (Product Brief Input) ----------
+  function renderComponentsEditor() {
+    const b = B();
+    const has = Array.isArray(b.components) && b.components.length > 0;
+    $("#componentsBlock").classList.toggle("hidden", !has);
+    $("#legacyMaterialBlock").classList.toggle("hidden", has);
+    $("#legacyPackagingBlock").classList.toggle("hidden", has);
+    $("#f_showCaptions").checked = b.showCaptions !== false;
+    const wrap = $("#componentsEditor");
+    wrap.innerHTML = "";
+    if (!has) return;
+
+    const mk = (tag, cls, props = {}) => Object.assign(document.createElement(tag), { className: cls || "" }, props);
+    const redraw = () => { derivePackagingFromComponents(); renderComponentsEditor(); };
+
+    b.components.forEach((comp, ci) => {
+      const box = mk("div", "comp-box");
+      const head = mk("div", "comp-head");
+      const name = mk("input", "", { type: "text", value: comp.name || "", placeholder: "Component name (e.g. Wheels & Bearings)" });
+      name.addEventListener("input", () => { comp.name = name.value; comp.kind = /^packaging$/i.test(name.value.trim()) ? "packaging" : comp.kind === "packaging" ? "main" : comp.kind; });
+      const delComp = mk("button", "btn btn-small", { type: "button", textContent: "Delete component" });
+      delComp.addEventListener("click", () => {
+        if (!confirm(`Delete "${comp.name || "this component"}" and its ${comp.items.length} instruction(s)?`)) return;
+        b.components.splice(ci, 1); redraw();
+      });
+      head.append(name, delComp);
+      box.appendChild(head);
+
+      comp.items.forEach((it, ii) => {
+        const row = mk("div", "comp-item");
+        row.appendChild(mk("div", "num", { textContent: `${ii + 1}.` }));
+
+        const text = mk("textarea", "", { rows: 2, value: it.text || "", placeholder: "Instruction (a \"must\" statement)" });
+        text.addEventListener("input", () => { it.text = text.value; derivePackagingFromComponents(); });
+        row.appendChild(text);
+
+        const status = mk("select", "");
+        ["Final", "Pending"].forEach((v) => status.appendChild(mk("option", "", { value: v, textContent: v, selected: (it.status || "Final").toLowerCase() === v.toLowerCase() })));
+        status.addEventListener("change", () => { it.status = status.value; });
+        row.appendChild(status);
+
+        const tools = mk("div", "tools");
+        const up = mk("button", "btn btn-small", { type: "button", textContent: "↑", title: "Move up" });
+        const down = mk("button", "btn btn-small", { type: "button", textContent: "↓", title: "Move down" });
+        const del = mk("button", "btn btn-small", { type: "button", textContent: "✕", title: "Delete instruction" });
+        up.addEventListener("click", () => { if (ii > 0) { [comp.items[ii - 1], comp.items[ii]] = [comp.items[ii], comp.items[ii - 1]]; redraw(); } });
+        down.addEventListener("click", () => { if (ii < comp.items.length - 1) { [comp.items[ii + 1], comp.items[ii]] = [comp.items[ii], comp.items[ii + 1]]; redraw(); } });
+        del.addEventListener("click", () => { comp.items.splice(ii, 1); redraw(); });
+        tools.append(up, down, del);
+        row.appendChild(tools);
+
+        const detail = mk("textarea", "detail", { rows: 1, value: it.skuDetail || "", placeholder: "SKU-specific detail (one line per SKU, optional)" });
+        detail.addEventListener("input", () => { it.skuDetail = detail.value; derivePackagingFromComponents(); });
+        row.appendChild(detail);
+
+        if ((it.images && it.images.length) || it.caption) {
+          const pics = mk("div", "pics");
+          (it.images || []).forEach((im, pi) => {
+            const fig = mk("figure");
+            fig.appendChild(mk("img", "", { src: im.dataUrl, alt: "" }));
+            const rm = mk("button", "btn", { type: "button", textContent: "✕", title: "Remove picture" });
+            rm.addEventListener("click", () => { it.images.splice(pi, 1); redraw(); });
+            fig.appendChild(rm);
+            pics.appendChild(fig);
+          });
+          const cap = mk("input", "", { type: "text", value: it.caption || "", placeholder: "Picture caption" });
+          cap.addEventListener("input", () => { it.caption = cap.value; });
+          pics.appendChild(cap);
+          row.appendChild(pics);
+        }
+        if (it.generated) row.appendChild(mk("div", "generated-tag", { textContent: "Added from the SKU table's carton sizes." }));
+        box.appendChild(row);
+      });
+
+      const add = mk("button", "btn btn-small", { type: "button", textContent: "+ Add instruction" });
+      add.addEventListener("click", () => { comp.items.push({ text: "", skuDetail: "", caption: "", status: "Final", appliesTo: "", images: [] }); redraw(); });
+      box.appendChild(add);
+      wrap.appendChild(box);
+    });
+
+    const addComp = mk("button", "btn btn-small", { type: "button", textContent: "+ Add component" });
+    addComp.addEventListener("click", () => { b.components.push({ name: "", kind: "main", items: [{ text: "", skuDetail: "", caption: "", status: "Final", appliesTo: "", images: [] }] }); redraw(); });
+    wrap.appendChild(addComp);
   }
 
   function renderTechSpecTable() {
@@ -318,7 +451,7 @@
     const wrap = $("#qcTable");
     wrap.innerHTML = "";
     B().qcRows.forEach((row, idx) => {
-      wrap.appendChild(buildRow(
+      const rowEl = buildRow(
         [
           { key: "parameter", val: row.parameter, placeholder: "Parameter", cls: "col-narrow" },
           { key: "acceptable", val: row.acceptable, placeholder: "Acceptable" },
@@ -326,7 +459,15 @@
         ],
         () => { B().qcRows.splice(idx, 1); renderQcTable(); },
         (key, val) => { B().qcRows[idx][key] = val; }
-      ));
+      );
+      if (row.images && row.images.length) {
+        const badge = document.createElement("span");
+        badge.className = "qc-photo-badge";
+        badge.textContent = `📷 ${row.images.length}`;
+        badge.title = "Defect photo(s) from the Product Brief Input tab - printed under 'Not acceptable'";
+        rowEl.insertBefore(badge, rowEl.querySelector(".row-remove"));
+      }
+      wrap.appendChild(rowEl);
     });
   }
 
@@ -364,8 +505,10 @@
       b.color = $("#f_color").value;
       b.description = $("#f_description").value;
       b.inclusions = $("#f_inclusions").value;
-      b.materialInstructions = $("#f_materialInstructions").value;
-      b.packaging = $("#f_packaging").value;
+      if (!(b.components && b.components.length)) {
+        b.materialInstructions = $("#f_materialInstructions").value;
+        b.packaging = $("#f_packaging").value;
+      }
       b.knownIssues = $("#f_knownIssues").value;
     }
     if (!$("#panel-3").classList.contains("hidden")) {
@@ -456,6 +599,7 @@
     $("#f_productKey").value = b.productKey || PBStorage.defaultProductKey(b);
     $("#f_version").value = b.version || "1.0";
     $("#f_versionLabel").value = b.versionLabel || "";
+    $("#f_savedBy").value = PBShared.getName();
   }
 
   $("#btnSuggestVersion").addEventListener("click", () => {
@@ -482,13 +626,32 @@
     PBDocx.downloadBlob(blob, `ProductBrief_${filenameSafe(B().articleNo) || "SKU"}_v${B().version || "1.0"}.json`);
   });
 
-  $("#btnSaveVersion").addEventListener("click", () => {
+  $("#btnSaveVersion").addEventListener("click", async () => {
     syncFormToState();
     const b = B();
+    const name = $("#f_savedBy").value.trim();
+    PBShared.setName(name);
+    b.savedBy = name;
     b.productKey = b.productKey || PBStorage.defaultProductKey(b);
-    const product = PBStorage.save(b, b.productKey);
-    setStatus("#exportStatus", `Saved "${product.key}" — v${b.version} (${product.history.length} revision${product.history.length === 1 ? "" : "s"} total).`, "ok");
+    let product;
+    try {
+      product = PBStorage.save(b, b.productKey);
+    } catch (err) {
+      setStatus("#exportStatus", err.message, "error");
+      return;
+    }
+    const revisions = `${product.history.length} revision${product.history.length === 1 ? "" : "s"} total`;
+    setStatus("#exportStatus", `Saved "${product.key}" — v${b.version} (${revisions}). Sharing with your team…`, "ok");
     renderProductList("#versionList");
+
+    const result = await PBShared.pushProduct(product.key);
+    let tail;
+    if (result.shared) tail = "Shared with your team.";
+    else if (PBShared.status.state === "local") tail = "Saved on this browser only — shared history isn't connected yet.";
+    else tail = "Saved on this browser, but the shared history couldn't be reached — it will retry automatically.";
+    setStatus("#exportStatus", `Saved "${product.key}" — v${b.version} (${revisions}). ${tail}`, result.shared || PBShared.status.state === "local" ? "ok" : "error");
+    renderProductList("#versionList");
+    renderSharedStatus();
   });
 
   function renderProductList(sel) {
@@ -504,11 +667,14 @@
       card.className = "product-card";
       const date = new Date(product.updatedAt).toLocaleString();
       const revisionWord = product.history.length === 1 ? "revision" : "revisions";
+      const lastSave = product.history[product.history.length - 1] || {};
+      const byWho = lastSave.savedBy ? ` by ${escapeHtml(lastSave.savedBy)}` : "";
+      const notShared = PBShared.isShared && product.history.some((e) => e.synced !== true);
       card.innerHTML = `
         <div class="product-card-top">
           <div>
             <strong>${escapeHtml(product.item || product.key)}</strong>
-            <div class="meta">${escapeHtml(product.articleNo || product.key)} · v${escapeHtml(product.brief.version || "1.0")} · ${product.history.length} ${revisionWord} · updated ${date}</div>
+            <div class="meta">${escapeHtml(product.articleNo || product.key)} · v${escapeHtml(product.brief.version || "1.0")} · ${product.history.length} ${revisionWord} · updated ${date}${byWho}${notShared ? ' · <span class="pending">not shared yet</span>' : ""}</div>
           </div>
           <div class="actions">
             <button class="btn btn-small" data-open="${encodeURIComponent(product.key)}">Open</button>
@@ -526,15 +692,26 @@
         const product = PBStorage.load(decodeURIComponent(btn.dataset.open));
         if (product) {
           PBState.brief = product.brief;
+          if (!PBState.brief.images) PBState.brief.images = { hero: [], feature: [] };
           $("#versionModal").classList.add("hidden");
           goToStep(2);
         }
       })
     );
     wrap.querySelectorAll("[data-del]").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        if (!confirm("Delete this product's entire saved history? This can't be undone.")) return;
-        PBStorage.remove(decodeURIComponent(btn.dataset.del));
+      btn.addEventListener("click", async () => {
+        const shared = PBShared.status.state === "connected";
+        const warning = shared
+          ? "Delete this product and its entire history for EVERYONE on the team? This can't be undone."
+          : "Delete this product's entire saved history? This can't be undone.";
+        if (!confirm(warning)) return;
+        const key = decodeURIComponent(btn.dataset.del);
+        const result = await PBShared.removeProduct(key);
+        if (!result.ok) {
+          alert("Couldn't delete it from the shared history: " + result.error + "\nNothing was deleted.");
+          return;
+        }
+        PBStorage.remove(key);
         renderProductList(sel);
       })
     );
@@ -559,7 +736,7 @@
       row.className = "product-history-row";
       const date = new Date(entry.savedAt).toLocaleString();
       row.innerHTML = `
-        <span>v${escapeHtml(entry.version || "1.0")} ${entry.label ? "· " + escapeHtml(entry.label) : ""} — ${date}</span>
+        <span>v${escapeHtml(entry.version || "1.0")} ${entry.label ? "· " + escapeHtml(entry.label) : ""} — ${date}${entry.savedBy ? " · " + escapeHtml(entry.savedBy) : ""}</span>
         <span class="actions"><button class="btn btn-small" data-restore="${entry.savedAt}">Restore</button></span>
       `;
       container.appendChild(row);
@@ -636,9 +813,82 @@
   $("#btnLoadVersion").addEventListener("click", () => {
     renderProductList("#versionModalList");
     $("#versionModal").classList.remove("hidden");
+    PBShared.pull();
   });
   $("#btnCloseModal").addEventListener("click", () => $("#versionModal").classList.add("hidden"));
 
+  // ---------- Shared history status ----------
+  function renderSharedStatus() {
+    const st = PBShared.status;
+    const pending = PBShared.localOnlyProducts().length;
+    let dot = "dot", text = "";
+    if (st.state === "connected") {
+      dot += " dot-ok";
+      const t = st.lastSync ? new Date(st.lastSync).toLocaleTimeString() : "";
+      text = `<strong>Shared with your team.</strong> Everyone who logs in sees these products and versions. Last synced ${t}.`;
+    } else if (st.state === "checking") {
+      text = "Syncing shared history…";
+    } else if (st.state === "local") {
+      dot += " dot-warn";
+      text = `<strong>This browser only.</strong> ${escapeHtml(st.message)} Setup steps are in the README.`;
+    } else if (st.state === "error") {
+      dot += " dot-err";
+      text = escapeHtml(st.message);
+    } else {
+      text = "Checking shared history…";
+    }
+    const buttons = [];
+    if (st.state !== "local" && st.state !== "checking") buttons.push('<button type="button" class="btn btn-small" data-shared-refresh>Refresh</button>');
+    if (st.state === "connected" && pending) {
+      buttons.push(`<button type="button" class="btn btn-small" data-shared-upload>Share ${pending} product${pending === 1 ? "" : "s"} saved only on this browser</button>`);
+    }
+    const html = `<span class="msg"><span class="${dot}"></span>${text}</span>${buttons.join(" ")}`;
+    $$(".shared-status").forEach((el) => { el.innerHTML = html; });
+  }
+
+  function refreshVisibleLists() {
+    if (!$("#panel-4").classList.contains("hidden")) renderProductList("#versionList");
+    if (!$("#panel-6").classList.contains("hidden")) renderProductList("#historyList");
+    if (!$("#versionModal").classList.contains("hidden")) renderProductList("#versionModalList");
+  }
+
+  let renderedDataVersion = -1;
+  let renderedIsShared = false;
+  PBShared.onChange(() => {
+    renderSharedStatus();
+    // Redraw the product lists only when something that affects them
+    // changed - new data from a sync, or the team database going from
+    // unavailable to available (cards then flag unshared saves) - so an
+    // open "View history" panel isn't collapsed by a routine check.
+    if (PBShared.dataVersion !== renderedDataVersion || PBShared.isShared !== renderedIsShared) {
+      renderedDataVersion = PBShared.dataVersion;
+      renderedIsShared = PBShared.isShared;
+      refreshVisibleLists();
+    }
+  });
+
+  document.addEventListener("click", async (ev) => {
+    if (ev.target.closest("[data-shared-refresh]")) {
+      await PBShared.pull();
+      refreshVisibleLists();
+    } else if (ev.target.closest("[data-shared-upload]")) {
+      const n = await PBShared.uploadLocalOnly();
+      renderSharedStatus();
+      refreshVisibleLists();
+      alert(n ? `Shared ${n} product${n === 1 ? "" : "s"} with your team.` : "Nothing could be shared right now - check the message above and try again.");
+    }
+  });
+
+  // Catch up when someone returns to this tab after a while.
+  let lastVisiblePull = Date.now();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - lastVisiblePull > 60000) {
+      lastVisiblePull = Date.now();
+      PBShared.pull();
+    }
+  });
+
   // init
   goToStep(1);
+  PBShared.pull();
 })();

@@ -11,7 +11,16 @@
       materialInstructions: "",
       techSpecs: [], // [{label, value}]
       packaging: "",
-      qcRows: [], // [{parameter, acceptable, notAcceptable}]
+      // From the PD sheet's "Product Brief Input" tab (see brief-input.js).
+      // When components is non-empty it replaces the free-text Material &
+      // Workmanship / Packaging boxes: per-component numbered instructions
+      // with their own pictures, status and SKU-specific detail.
+      components: [], // [{name, kind:"main"|"packaging", items:[{text, skuDetail, caption, status, appliesTo, images, generated}]}]
+      skuTable: [], // [{sku, color, itemCarton, itemCartonWeight, masterCarton, masterCartonWeight, pcsPerMaster}]
+      category: "",
+      showCaptions: true, // print each picture's caption under it (Step 2 switch)
+      complianceAuto: "", // the compliance text last generated from the sheet (to tell if the person has edited it since)
+      qcRows: [], // [{parameter, acceptable, notAcceptable, method?, images?}]
       knownIssues: "", // known field complaints + preventive specs, from PD review analysis (reference only - used to seed qcRows, not exported as its own section)
       qualityInspectionNotes: "", // per-SKU QC test notes from the PD sheet (feeds the Pre-QC Check downstream doc)
       images: { hero: [], feature: [] }, // extracted from the PD sheet, see xlsx-images.js
@@ -34,7 +43,7 @@
       // completeness, measurement, visual, packaging/printing checks).
       // These two arrays are PRODUCT-SPECIFIC tests added on top of that
       // baseline (e.g. an inflatable product needs inflation/leakage/
-      // deflation tests a stunt scooter never would) - empty by default,
+      // deflation tests many products never need) - empty by default,
       // fully editable in Step 3.
       extraPreInspectionTests: [], // [{test, items}]
       extraPreQcTests: [], // [{test, methods}]

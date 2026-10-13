@@ -17,6 +17,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { checkAuth, deny } = require("./_auth");
 
 const SITE_ROOT = path.join(process.cwd(), "site");
 
@@ -32,27 +33,8 @@ const MIME = {
   ".map": "application/json; charset=utf-8",
 };
 
-function checkAuth(req) {
-  const header = req.headers.authorization || "";
-  const [scheme, encoded] = header.split(" ");
-  if (scheme !== "Basic" || !encoded) return false;
-  const decoded = Buffer.from(encoded, "base64").toString("utf8");
-  const sep = decoded.indexOf(":");
-  if (sep === -1) return false;
-  const user = decoded.slice(0, sep);
-  const pass = decoded.slice(sep + 1);
-  const expectedUser = process.env.SITE_USER || "";
-  const expectedPass = process.env.SITE_PASSWORD || "";
-  return user === expectedUser && pass === expectedPass && expectedPass.length > 0;
-}
-
 module.exports = (req, res) => {
-  if (!checkAuth(req)) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="Product Brief Generator"');
-    res.statusCode = 401;
-    res.end("Authentication required.");
-    return;
-  }
+  if (!checkAuth(req)) return deny(res);
 
   let urlPath = (req.url || "/").split("?")[0];
   if (urlPath === "/" || urlPath === "") urlPath = "/index.html";
