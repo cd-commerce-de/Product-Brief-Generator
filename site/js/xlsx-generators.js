@@ -90,12 +90,12 @@
     if (colWidths) setColWidths(ws, colWidths);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const out = XLSX.write(wb, { bookType: "xlsx", type: "array", bookSST: true });
     return { ws, blob: new Blob([out], { type: "application/octet-stream" }) };
   }
 
   function finalizeBlob(wb) {
-    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const out = XLSX.write(wb, { bookType: "xlsx", type: "array", bookSST: true });
     return new Blob([out], { type: "application/octet-stream" });
   }
 
@@ -132,6 +132,154 @@
     return text;
   }
 
+  // ---------- one source of truth for sizes, cartons and compliance ----------
+  // When the PD sheet has a Product Brief Input tab, the brief's own
+  // components, SKU table and QC rows are the source for every figure in
+  // these forms - NOT the older spec tabs, which can disagree with it (the
+  // SSC sheet's old tab says 46 cm wide, its Brief Input says 50). The older
+  // lookups above are only the fallback for sheets without that tab.
+  function fmtNum(v) {
+    const t = String(v == null ? "" : v).trim();
+    return /^-?\d+(\.\d+)?$/.test(t) ? String(Number(t)) : t;
+  }
+
+  // The brief's compliance box can carry **bold** markers; spreadsheets
+  // can't show them, so they must never reach a cell.
+  function stripMarkup(text) {
+    return String(text || "").replace(/\*\*/g, "");
+  }
+
+  const MEASURE_RE = /\d+(?:\.\d+)?\s*[x×]\s*\d+|\d+(?:[.,]\d+)?\s*(?:mm|cm|kg|g)\b/i;
+  const DIM_RE = /\d+(?:\.\d+)?(?:\s*[x×]\s*\d+(?:\.\d+)?)+\s*(?:mm|cm|m)?/i;
+
+  function mainItems(brief) {
+    const out = [];
+    (brief.components || []).filter((c) => c.kind !== "packaging").forEach((c) => (c.items || []).forEach((it) => out.push(it)));
+    return out;
+  }
+
+  // Short spec statements from the brief's instructions ("Wheels: 110 x 24 mm
+  // PU ..."). Long sentences are rules, not measurements, so they're skipped.
+  function measurableSpecs(brief) {
+    if (!(brief.components || []).length) return null;
+    return mainItems(brief)
+      .map((it) => String(it.text || "").trim())
+      .filter((t) => t && t.length <= 140 && MEASURE_RE.test(t))
+      .map((t) => t.replace(/\.$/, ""));
+  }
+
+  // "The overall assembled size is 69 x 50 x84 cm." -> "69 x 50 x84 cm";
+  // "The deck size is 52 x 12 cm." -> "Deck: 52 x 12 cm".
+  function sizeLines(brief) {
+    if (!(brief.components || []).length) return null;
+    const out = [];
+    mainItems(brief).forEach((it) => {
+      const t = String(it.text || "");
+      if (!/\b(size|dimensions?)\b/i.test(t)) return;
+      const m = DIM_RE.exec(t);
+      if (!m) return;
+      const lab = /^the\s+(.+?)\s+(?:size|dimensions?)\b/i.exec(t.trim());
+      let label = lab ? lab[1].trim() : "";
+      if (/overall|assembled|product|total/i.test(label)) label = "";
+      label = label.charAt(0).toUpperCase() + label.slice(1);
+      out.push(label ? `${label}: ${m[0].trim()}` : m[0].trim());
+    });
+    return out;
+  }
+
+  function dimensionText(brief) {
+    const sz = sizeLines(brief);
+    if (sz && sz.length) return sz.join("\n");
+    return findDimensionSpec(brief);
+  }
+
+  function specsText(brief) {
+    const ms = measurableSpecs(brief);
+    if (ms && ms.length) return ms.slice(0, 10).join("\n");
+    return findDimensionSpec(brief);
+  }
+
+  // Carton sizes/weights straight from the SKU table. Returns lines, or
+  // null when the brief has no SKU table (older sheets).
+  function cartonLines(brief) {
+    const skus = (brief.skuTable || []).filter((s) => s.itemCarton || s.masterCarton);
+    if (!skus.length) return null;
+    const uniq = (key) => {
+      const vals = skus.map((s) => fmtNum(s[key])).filter(Boolean);
+      return vals.length && vals.every((v) => v === vals[0]) ? vals[0] : null;
+    };
+    const fmt = (dims, wt, pcs) => [dims && `${dims} cm`, wt && `${wt} kg`, pcs && `${pcs} pcs`].filter(Boolean).join(", ");
+    const out = [];
+    const itemDims = uniq("itemCarton"), itemWt = uniq("itemCartonWeight");
+    if (skus.some((s) => s.itemCarton)) {
+      if (itemDims) out.push("Item carton: " + fmt(itemDims, itemWt));
+      else skus.forEach((s) => out.push(`Item carton ${s.sku}: ` + fmt(fmtNum(s.itemCarton), fmtNum(s.itemCartonWeight))));
+    }
+    const mDims = uniq("masterCarton"), mWt = uniq("masterCartonWeight"), pcs = uniq("pcsPerMaster");
+    if (skus.some((s) => s.masterCarton)) {
+      if (mDims) out.push("Master carton: " + fmt(mDims, mWt, pcs));
+      else skus.forEach((s) => out.push(`Master carton ${s.sku}: ` + fmt(fmtNum(s.masterCarton), fmtNum(s.masterCartonWeight), fmtNum(s.pcsPerMaster))));
+    }
+    return out;
+  }
+
+  // Marketing "Packaging size": just the single-item carton size.
+  function packagingSizeText(brief) {
+    const skus = (brief.skuTable || []).filter((s) => s.itemCarton);
+    if (skus.length) {
+      const dims = [...new Set(skus.map((s) => fmtNum(s.itemCarton)))];
+      return dims.length === 1 ? `${dims[0]} cm` : skus.map((s) => `${s.sku}: ${fmtNum(s.itemCarton)} cm`).join("\n");
+    }
+    return findPackagingSize(brief);
+  }
+
+  // The brief's first packaging instruction (what the packing is made of).
+  function packagingMaterialLine(brief) {
+    const pk = (brief.components || []).find((c) => c.kind === "packaging");
+    return pk && pk.items && pk.items[0] ? String(pk.items[0].text || "").trim() : "";
+  }
+
+  // QC rows the team actually typed in Part C (not the tool's placeholders).
+  function sheetQcRows(brief) {
+    return (brief.qcRows || []).filter((r) => r.fromSheet && r.parameter);
+  }
+
+  function qcCriteria(r) {
+    return [
+      r.acceptable && `Acceptable: ${r.acceptable}`,
+      r.notAcceptable && `Not acceptable: ${r.notAcceptable}`,
+      r.method && `Method: ${r.method}`,
+    ].filter(Boolean).join("\n");
+  }
+
+  // Excel and Google Sheets don't grow a row to fit wrapped text inside
+  // MERGED cells (and may not on open at all), so long text got cut off.
+  // Set each row's height explicitly from how many lines its text needs at
+  // the cell's (merged) width.
+  function fitRows(ws, colWidths) {
+    const ref = XLSX.utils.decode_range(ws["!ref"]);
+    const origins = {};
+    (ws["!merges"] || []).forEach((m) => { origins[`${m.s.r},${m.s.c}`] = m; });
+    const rowsOut = [];
+    for (let r = ref.s.r; r <= ref.e.r; r++) {
+      let maxLines = 1;
+      for (let c = ref.s.c; c <= ref.e.c; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        if (!cell || typeof cell.v !== "string" || !cell.v) continue;
+        const m = origins[`${r},${c}`];
+        let width = 0;
+        for (let k = c; k <= (m ? m.e.c : c); k++) width += colWidths[k] || 9;
+        const bold = cell.s && cell.s.font && cell.s.font.bold;
+        const perLine = Math.max(4, Math.floor(width * (bold ? 0.95 : 1.1) - 1));
+        let lines = 0;
+        cell.v.split("\n").forEach((seg) => { lines += Math.max(1, Math.ceil(seg.length / perLine)); });
+        if (lines > maxLines) maxLines = lines;
+      }
+      rowsOut[r] = maxLines > 1 ? { hpt: Math.min(409, maxLines * 15 + 3) } : {};
+    }
+    ws["!rows"] = rowsOut;
+  }
+
   // ---------- Pre-inspection Briefing Form ----------
   function generatePreInspectionXlsx(brief) {
     const fieldRows = [
@@ -153,7 +301,7 @@
       ],
       [
         "Measurement",
-        `~Measuring tape\n~Vernier caliper / weighing scale\n\nAgainst spec: ${findDimensionSpec(brief) || "(see Technical Specifications in Product Brief)"}`,
+        `~Measuring tape\n~Vernier caliper / weighing scale\n\nAgainst spec:\n${specsText(brief) || "(see Technical Specifications in Product Brief)"}`,
         "Available/Not Available",
       ],
       [
@@ -163,7 +311,11 @@
       ],
       [
         "Packaging",
-        "~Complete carton with all packaging materials\n~Tape and sealing materials\n\nSpec: " + (brief.packaging || "(see Product Brief)"),
+        "~Complete carton with all packaging materials\n~Tape and sealing materials\n\nSpec:\n" + (
+          cartonLines(brief)
+            ? [packagingMaterialLine(brief), ...cartonLines(brief)].filter(Boolean).join("\n")
+            : (brief.packaging || "(see Product Brief)")
+        ),
         "Available/Not Available",
       ],
     ];
@@ -171,6 +323,11 @@
     if (brief.qualityInspectionNotes) {
       testRows.push(["Product-specific test (from PD sheet)", brief.qualityInspectionNotes, "Available/Not Available"]);
     }
+    // The QC limits the team defined in the brief's Part C: each becomes a
+    // check, with its acceptance limits and test method.
+    sheetQcRows(brief).forEach((r) => {
+      testRows.push([r.parameter, "~Check against the brief's limits:\n" + qcCriteria(r), "Available/Not Available"]);
+    });
     (brief.extraPreInspectionTests || []).forEach((t) => {
       if (!t.test && !t.items) return;
       testRows.push([t.test || "", t.items || "", "Available/Not Available"]);
@@ -189,7 +346,9 @@
       rows.push([], ["Production status at time of inspection", brief.productionStatus]);
       r = rows.length;
     }
-    if (brief.knownIssues) {
+    // Without Part C limits, fall back to the PD sheet's market-complaint
+    // analysis so inspectors still know what to watch for.
+    if (brief.knownIssues && !sheetQcRows(brief).length) {
       rows.push([], ["Known Market Complaints to Watch For (from PD review analysis)"]);
       brief.knownIssues.split("\n\n").forEach((block) => rows.push([block]));
     }
@@ -214,6 +373,7 @@
       styleRange(ws, rr, 1, rr, 2, ROW_VALUE_STYLE);
     });
 
+    fitRows(ws, [34, 58, 20]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Pre-inspection");
     return finalizeBlob(wb);
@@ -238,7 +398,7 @@
         "", "",
       ],
       ["Material / surface check", "~Inspect visible quality of materials against the Product Brief.\n\nSpec:\n" + (brief.material || ""), "", ""],
-      ["Dimensions check", "~Confirm product dimensions match the approved specification.\n\nSpec: " + (findDimensionSpec(brief) || "(see Technical Specifications)"), "", ""],
+      ["Dimensions check", "~Confirm product dimensions match the approved specification.\n\nSpec:\n" + (dimensionText(brief) || specsText(brief) || "(see Technical Specifications)"), "", ""],
       ["Odor check", "~Smell by nose within 10cm.", "", ""],
       ["Printing, artwork, colors check", "~Compare product print with approved artwork.\n~Check logo orientation, position, sharpness, and color.\n\nColor spec: " + (brief.color || ""), "", ""],
     ];
@@ -246,6 +406,9 @@
     if (brief.qualityInspectionNotes) {
       testRows.push(["Product-specific test (from PD sheet)", brief.qualityInspectionNotes, "", ""]);
     }
+    // One test per QC limit the team wrote in the brief's Part C, with its
+    // acceptance limits and test method.
+    sheetQcRows(brief).forEach((r) => testRows.push([r.parameter, qcCriteria(r), "", ""]));
     (brief.extraPreQcTests || []).forEach((t) => {
       if (!t.test && !t.methods) return;
       testRows.push([t.test || "", t.methods || "", "", ""]);
@@ -263,12 +426,12 @@
     rows.push([], ["Packing List Overview", "Requirement", "ACTUAL", "Photo Proof"]);
     const packingRows = [];
     if (brief.productionStatus) packingRows.push(["Production status", brief.productionStatus, "", ""]);
-    packingRows.push(["Carton dimensions / weight", brief.packaging || "", "", ""]);
+    packingRows.push(["Carton dimensions / weight", cartonLines(brief) ? cartonLines(brief).join("\n") : (brief.packaging || ""), "", ""]);
     packingRows.forEach((row) => rows.push(row));
 
     const complianceHeaderIdx = rows.length + 1;
     rows.push([], ["Required Certification / Compliance Declarations", "", "AVAILABLE/NOT AVAILABLE", "Remarks"]);
-    rows.push([brief.compliance || "", "", "", ""]);
+    rows.push([stripMarkup(brief.compliance), "", "", ""]);
 
     const signOffIdx = rows.length + 1;
     rows.push([], ["Supplier Signature & Date"], ["Name", "Signature", "", "Date"]);
@@ -301,11 +464,14 @@
     });
 
     styleRange(ws, complianceHeaderIdx, 0, complianceHeaderIdx, 3, TABLE_HEADER_STYLE);
+    // The compliance text spans the full width instead of one narrow column.
+    addMerge(ws, complianceHeaderIdx + 1, 0, complianceHeaderIdx + 1, 3);
     styleRange(ws, complianceHeaderIdx + 1, 0, complianceHeaderIdx + 1, 3, ROW_VALUE_STYLE);
 
     styleRange(ws, signOffIdx, 0, signOffIdx, 1, SUBSECTION_STYLE);
     styleRange(ws, signOffIdx + 1, 0, signOffIdx + 1, 3, FIELD_LABEL_STYLE);
 
+    fitRows(ws, [34, 56, 24, 30]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "QC Results");
     return finalizeBlob(wb);
@@ -349,58 +515,58 @@
     const espLines = espSection ? espSection.text.split("\n").filter(Boolean) : [];
 
     const rows = [[]];
-    // Each entry: { row, labelCol } - labelCol is 1 (column B) for the
-    // top portion of the sheet, 2 (column C) for the shifted section.
-    const strongRows = [];
-    const lightRows = [];
+    // Every row is tagged with how it is laid out (matching the reference
+    // sheets): a label cell plus a value merged across to column F, a full-
+    // width divider, or one of the two small header rows with a Benefit
+    // column. labelCol is 1 (B) at the top and 2 (C) from the features
+    // section down.
+    const meta = [];
+    function push(row, kind, labelCol) { rows.push(row); meta.push({ row: rows.length - 1, kind, labelCol }); return rows.length - 1; }
 
-    function pushStrong(row, labelCol) { rows.push(row); strongRows.push({ row: rows.length - 1, labelCol }); return rows.length - 1; }
-    function pushLight(row, labelCol) { rows.push(row); lightRows.push({ row: rows.length - 1, labelCol }); return rows.length - 1; }
-
-    pushStrong(["", "ITEM", brief.item || ""], 1);
-    pushStrong(["", "BRAND NAME", brief.brandName || ""], 1);
-    pushLight(["", "DESCRIPTION", brief.description || ""], 1);
+    push(["", "ITEM", brief.item || ""], "strongField", 1);
+    push(["", "BRAND NAME", brief.brandName || ""], "strongField", 1);
+    push(["", "DESCRIPTION", brief.description || ""], "lightField", 1);
 
     rows.push([]);
-    const inclusionsHeaderIdx = pushLight(["", "INCLUSIONS", "Item/Part", "", "Benefit", "Expectation Setting"], 1);
+    const inclusionsHeaderIdx = push(["", "INCLUSIONS", "Item/Part", "", "Benefit", "Expectation Setting"], "incHeader", 1);
     const inclusionLines = (brief.inclusions || "").split("\n").filter(Boolean);
     inclusionLines.forEach((line) => rows.push(["", "", line, "", "", ""]));
 
     rows.push([]);
-    pushLight(["", "CERTIFICATIONS\n(Link to the certificates)", ""], 1);
-    pushLight(["", "Other Compliance related informations", ""], 1);
+    push(["", "CERTIFICATIONS\n(Link to the certificates)", ""], "lightField", 1);
+    push(["", "Other Compliance related informations", ""], "lightField", 1);
 
     rows.push([]);
-    pushStrong(["", "PRODUCT SPECIFICATIONS"], 1);
+    push(["", "PRODUCT SPECIFICATIONS"], "divider", 1);
     rows.push([]);
-    pushLight(["", "Link POE Table", ""], 1);
-    pushLight(["", "Article No.", brief.articleNo || ""], 1);
-    pushLight(["", "Artworks/Image/Color", ""], 1);
-    pushLight(["", "Material", brief.material || ""], 1);
-    pushLight(["", "Color", brief.color || ""], 1);
-    pushLight(["", "Size", findDimensionSpec(brief) || ""], 1);
+    push(["", "Link POE Table", ""], "lightField", 1);
+    push(["", "Article No.", brief.articleNo || ""], "lightField", 1);
+    push(["", "Artworks/Image/Color", ""], "lightField", 1);
+    push(["", "Material", brief.material || ""], "lightField", 1);
+    push(["", "Color", brief.color || ""], "lightField", 1);
+    push(["", "Size", dimensionText(brief) || ""], "lightField", 1);
     // Any tech specs beyond the one used for "Size" (e.g. operating
     // pressure, load capacity, coverage) - the category-specific extras
     // all three reference documents include here.
     const dimLabelMatch = /dimension|size/i;
     (brief.techSpecs || []).filter((s) => !dimLabelMatch.test(s.label)).forEach((spec) => {
-      pushLight(["", spec.label, spec.value], 1);
+      push(["", spec.label, spec.value], "lightField", 1);
     });
-    pushLight(["", "Packaging size", findPackagingSize(brief)], 1);
+    push(["", "Packaging size", packagingSizeText(brief)], "lightField", 1);
 
     rows.push([]);
-    pushStrong(["", "", "IMPORTANT FEATURES TO HIGHLIGHT\nMention all the product's features, no matter how small - better too many than too few. All features must be explained in a comprehensible way."], 2);
-    const espIntroIdx = pushLight(["", "", "These features are also offered by other competitors in the market.", "", "Benefit"], 2);
+    push(["", "", "IMPORTANT FEATURES TO HIGHLIGHT\nMention all the product's features, no matter how small - better too many than too few. All features must be explained in a comprehensible way."], "divider", 2);
+    const espIntroIdx = push(["", "", "These features are also offered by other competitors in the market.", "", "Benefit"], "intro", 2);
     espLines.forEach((line) => rows.push(["", "", line, "", ""]));
     const espRowCount = espLines.length;
 
     rows.push([]);
-    const uspIntroIdx = pushLight(["", "", "These features are underutilized. Can be positioned as USPs", "", "Benefit"], 2);
+    const uspIntroIdx = push(["", "", "These features are underutilized. Can be positioned as USPs", "", "Benefit"], "intro", 2);
     uspLines.forEach((line) => rows.push(["", "", line, "", ""]));
     const uspRowCount = uspLines.length;
 
     rows.push([]);
-    pushStrong(["", "", "Weaknesses in our product."], 2);
+    push(["", "", "Weaknesses in our product."], "divider", 2);
     // Genuinely not PD-sheet-derivable: the PD sheet's review-analysis data
     // is about competitor products, not an honest self-assessment of this
     // specific design's own limitations - left blank rather than reused
@@ -408,26 +574,44 @@
     rows.push(["", ""]);
 
     rows.push([]);
-    pushStrong(["", "", "Target group"], 2);
+    push(["", "", "Target group"], "divider", 2);
     rows.push(["", ""]);
 
     rows.push([]);
-    pushStrong(["", "", "Sample Picture"], 2);
+    push(["", "", "Sample Picture"], "divider", 2);
     rows.push(["", "", brief.includeImages && brief.images && (brief.images.hero.length || brief.images.feature.length)
       ? "See the Product Brief's Product Image(s) and Reference Images for source photos to use here."
       : ""]);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    setColWidths(ws, [4, 22, 32, 20, 34, 30]);
+    const widths = [4, 22, 32, 20, 34, 30];
+    setColWidths(ws, widths);
 
-    strongRows.forEach(({ row: rr, labelCol }) => {
-      addMerge(ws, rr, labelCol + 1, rr, 5);
-      styleRange(ws, rr, labelCol, rr, labelCol, TITLE_STYLE);
-      styleRange(ws, rr, labelCol + 1, rr, 5, TITLE_STYLE);
-    });
-    lightRows.forEach(({ row: rr, labelCol }) => {
-      styleRange(ws, rr, labelCol, rr, labelCol, SUBSECTION_STYLE);
-      styleRange(ws, rr, labelCol + 1, rr, 5, SUBSECTION_STYLE);
+    // In the reference sheets ITEM / BRAND NAME carry an orange value that
+    // is NOT bold, and every other value is plain white - only the labels
+    // are filled.
+    const STRONG_VALUE_STYLE = { fill: TITLE_STYLE.fill, border: ALL_BORDERS, alignment: { vertical: "top", wrapText: true } };
+    meta.forEach(({ row: rr, kind, labelCol }) => {
+      if (kind === "strongField") {
+        styleRange(ws, rr, labelCol, rr, labelCol, TITLE_STYLE);
+        addMerge(ws, rr, labelCol + 1, rr, 5);
+        styleRange(ws, rr, labelCol + 1, rr, 5, STRONG_VALUE_STYLE);
+      } else if (kind === "lightField") {
+        styleRange(ws, rr, labelCol, rr, labelCol, SUBSECTION_STYLE);
+        addMerge(ws, rr, labelCol + 1, rr, 5);
+        styleRange(ws, rr, labelCol + 1, rr, 5, ROW_VALUE_STYLE);
+      } else if (kind === "divider") {
+        // The label itself spans the whole row (otherwise it is clipped to
+        // its own narrow column).
+        addMerge(ws, rr, labelCol, rr, 5);
+        styleRange(ws, rr, labelCol, rr, 5, TITLE_STYLE);
+      } else if (kind === "incHeader") {
+        addMerge(ws, rr, 2, rr, 3);
+        styleRange(ws, rr, labelCol, rr, 5, SUBSECTION_STYLE);
+      } else if (kind === "intro") {
+        addMerge(ws, rr, 2, rr, 3);
+        styleRange(ws, rr, 2, rr, 5, SUBSECTION_STYLE);
+      }
     });
 
     inclusionLines.forEach((_, i) => {
@@ -435,7 +619,6 @@
       addMerge(ws, rr, 2, rr, 3);
       styleRange(ws, rr, 2, rr, 5, ROW_VALUE_STYLE);
     });
-
     for (let i = 0; i < espRowCount; i++) {
       const rr = espIntroIdx + 1 + i;
       addMerge(ws, rr, 2, rr, 3);
@@ -448,16 +631,15 @@
     }
 
     // The three freeform blank-or-filled value rows (Weaknesses, Target
-    // group, Sample Picture) - find them as "the row right after each
-    // strong divider that isn't itself a divider."
-    const weaknessRowIdx = strongRows[strongRows.length - 3].row + 1;
-    const targetGroupRowIdx = strongRows[strongRows.length - 2].row + 1;
-    const samplePicRowIdx = strongRows[strongRows.length - 1].row + 1;
-    [weaknessRowIdx, targetGroupRowIdx, samplePicRowIdx].forEach((rr) => {
+    // group, Sample Picture) sit right under their dividers.
+    const dividers = meta.filter((m) => m.kind === "divider");
+    dividers.slice(-3).forEach(({ row }) => {
+      const rr = row + 1;
       addMerge(ws, rr, 2, rr, 5);
       styleRange(ws, rr, 2, rr, 5, ROW_VALUE_STYLE);
     });
 
+    fitRows(ws, widths);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Marketing Guide");
     return finalizeBlob(wb);

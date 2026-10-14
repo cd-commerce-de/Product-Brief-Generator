@@ -79,24 +79,27 @@
     },
   ];
 
+  // Each row records where it came from: fromSheet = typed in Part C;
+  // isDefault = a placeholder the tool added. Downstream forms (Pre-QC,
+  // Pre-inspection) use only the rows that came from the sheet.
   function mergeQcRows(partCRows) {
     const rows = (partCRows || []).map((r) => ({
       parameter: r.parameter, acceptable: r.acceptable || "", notAcceptable: r.notAcceptable || "",
-      method: r.method || "", images: r.images || [],
+      method: r.method || "", images: r.images || [], fromSheet: true,
     }));
     const covered = new Set();
     rows.forEach((r) => {
       const d = DEFAULT_QC.find((x) => x.match.test(r.parameter));
       if (d) covered.add(d.kind);
     });
+    const placeholder = (d) => ({
+      parameter: d.parameter, acceptable: d.acceptable, notAcceptable: d.notAcceptable,
+      method: "", images: [], isDefault: true,
+    });
     const out = [];
-    DEFAULT_QC.filter((d) => d.first && !covered.has(d.kind)).forEach((d) => {
-      out.push({ parameter: d.parameter, acceptable: d.acceptable, notAcceptable: d.notAcceptable, method: "", images: [] });
-    });
+    DEFAULT_QC.filter((d) => d.first && !covered.has(d.kind)).forEach((d) => out.push(placeholder(d)));
     rows.forEach((r) => out.push(r));
-    DEFAULT_QC.filter((d) => !d.first && !covered.has(d.kind)).forEach((d) => {
-      out.push({ parameter: d.parameter, acceptable: d.acceptable, notAcceptable: d.notAcceptable, method: "", images: [] });
-    });
+    DEFAULT_QC.filter((d) => !d.first && !covered.has(d.kind)).forEach((d) => out.push(placeholder(d)));
     return out;
   }
 

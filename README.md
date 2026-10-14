@@ -589,6 +589,43 @@ contact / phone / email, PO number, date.
   placeholder wording. Add a row of the same kind to Part C — or give us the
   official default wording — to use yours.
 
+## Downstream forms with a Product Brief Input tab
+
+When the sheet has a Product Brief Input tab, the Pre-inspection form, Pre-QC
+check and Marketing Guide use **the brief's own data** instead of the older
+spec tabs, which can disagree with it (the SSC sheet's old tab says 46 cm
+wide; its Brief Input says 50):
+
+- **Sizes / specs** come from the brief's instructions ("The overall assembled
+  size is …", "The deck size is …", "Wheels: 110 x 24 mm …") — not the older
+  DIMENSIONS block. Sheets without the tab still use the older lookups.
+- **Carton sizes and weights** (Pre-QC "Carton dimensions / weight",
+  Pre-inspection Packaging, Marketing "Packaging size") come from the SKU table,
+  not a dump of the packaging text.
+- **QC limits typed in Part C** become checks in both forms (parameter,
+  acceptable / not acceptable, test method). The tool's own placeholder rows
+  are not carried over, and the PD sheet's market-complaint dump is only used
+  when there are no Part C rows.
+- The `**bold**` markers in the compliance box never reach a spreadsheet, and
+  the compliance text spans the Pre-QC form's full width.
+- **Marketing Guide formatting** now matches the reference sheets: only labels
+  are filled (values are plain; ITEM / BRAND NAME values are orange, not bold),
+  values are merged across to column F, and the section dividers span the full
+  row instead of being clipped to one column.
+- **Row heights are set explicitly** in all three files (Excel and Google
+  Sheets don't grow a row to fit wrapped text in merged cells), and cells are
+  written as shared strings so line breaks display everywhere (as inline
+  strings they ran together in LibreOffice).
+
+Product Brief: the regulation list now stays on the same page as the test
+report number line, and the date prints as typed (no "Date:" prefix; new
+briefs default to a "14 Oct 2026" style date).
+
+Still open (needs the team): the standard wording of the checks in these
+forms was authored earlier from sample forms and should come from the sheet or
+be replaced; and what "ESPs" are, since those lines currently sit under
+"features also offered by competitors".
+
 ## Shared version history (everyone on the team sees the same products)
 
 Saved products and their version history can live in a small shared database

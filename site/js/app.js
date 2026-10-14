@@ -542,7 +542,7 @@
   // ---------- Step 3 prefill ----------
   function fillPoForm() {
     const b = B();
-    $("#f_date").value = b.date || new Date().toISOString().slice(0, 10);
+    $("#f_date").value = b.date || new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
     $("#f_poNumber").value = b.poNumber;
     $("#f_supplierName").value = b.supplierName;
     $("#f_supplierContact").value = b.supplierContact;

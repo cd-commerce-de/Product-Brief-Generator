@@ -377,11 +377,21 @@
 
   // ---------- compliance ----------
   // Lines may use **bold**; blank lines become small gaps.
+  // The list of regulations stays together with the line after it (the test
+  // report number): list lines and the gap below the list are chained to
+  // the next paragraph so a page break can't strand "Test Report No." alone.
   function complianceParagraphs(text) {
     const out = [];
+    let prevWasBullet = false;
     String(text || "").split("\n").forEach((line) => {
-      if (!line.trim()) { out.push(p("", { after: 60 })); return; }
-      out.push(new Paragraph({ children: inlineRuns(line), spacing: { after: 80 } }));
+      const isBullet = /^\s*(\*\*)?-/.test(line);
+      if (!line.trim()) {
+        out.push(p("", { after: 60, keepNext: prevWasBullet }));
+        prevWasBullet = false;
+        return;
+      }
+      out.push(new Paragraph({ children: inlineRuns(line), spacing: { after: 80 }, keepNext: isBullet }));
+      prevWasBullet = isBullet;
     });
     return out;
   }
@@ -457,7 +467,8 @@
     children.push(table([halfW, CONTENT_WIDTH - halfW], [
       new TableRow({
         children: [
-          cell(p(`Date: ${brief.date || ""}`, { bold: true }), halfW, { noBorder: true }),
+          // Just the date as typed (the approved briefs print it bare, e.g. "14 Sept 2026").
+          cell(p(brief.date || "", { bold: true }), halfW, { noBorder: true }),
           cell(p(`PO Number: ${brief.poNumber || ""}`, { bold: true, align: AlignmentType.RIGHT }), CONTENT_WIDTH - halfW, { noBorder: true }),
         ],
       }),
