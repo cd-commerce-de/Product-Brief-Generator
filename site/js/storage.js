@@ -146,6 +146,24 @@
       return map[key];
     },
 
+    // Used when a document is generated: if the brief is unchanged since the
+    // newest saved version, that version is reused (so downloading the same
+    // brief twice doesn't fill the history with duplicates); otherwise a new
+    // version is saved. Returns { product, entry, created }.
+    saveIfChanged(brief, productKeyOverride) {
+      const key = (productKeyOverride || brief.productKey || defaultProductKey(brief)).trim() || "Untitled product";
+      const existing = readAll()[key];
+      const latest = existing && existing.history[existing.history.length - 1];
+      if (latest && JSON.stringify(stripImages(brief)) === JSON.stringify(stripImages(latest.brief))) {
+        const map = readAll();
+        map[key].brief = snapshot(brief); // keep this computer's pictures on the current brief
+        writeAll(map);
+        return { product: map[key], entry: map[key].history[map[key].history.length - 1], created: false };
+      }
+      const product = this.save(brief, key);
+      return { product, entry: product.history[product.history.length - 1], created: true };
+    },
+
     load(key) {
       return readAll()[key] || null;
     },

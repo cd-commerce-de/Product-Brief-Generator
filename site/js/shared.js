@@ -51,6 +51,19 @@
     return { status: resp.status, json };
   }
 
+  async function fileApi(method, query, body) {
+    const resp = await fetch("/api/files" + (query || ""), {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    let json = null;
+    try { json = await resp.json(); } catch (e) { /* non-JSON body */ }
+    return { status: resp.status, json };
+  }
+
   function idOf(entry) {
     return entry.id || `L${entry.savedAt}`;
   }
@@ -80,6 +93,8 @@
       if (le) {
         le.id = id;
         le.synced = true; // keep the local copy: it may still carry images
+        // The server decides which versions still have a stored file.
+        if (re.file) le.file = re.file; else delete le.file;
         merged.push(le);
       } else {
         merged.push({ ...re, id, synced: true });
@@ -248,6 +263,59 @@
     return uploaded;
   }
 
+  // ---------- generated files ----------
+  const CHUNK_CHARS = 600000; // base64 characters per upload request (stays under the database's request limit)
+  const MAX_FILE_BYTES = 3 * 1024 * 1024;
+
+  function bytesToBase64(bytes) {
+    let bin = "";
+    const step = 0x8000;
+    for (let i = 0; i < bytes.length; i += step) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+    return btoa(bin);
+  }
+
+  // Records a generated document in the shared history: makes sure the
+  // version it was generated from exists in the team database, uploads the
+  // file, and attaches it to that version. Returns { shared, error }.
+  async function recordGeneration(key, entryId, blob, fileName) {
+    if (status.state === "local") return { shared: false };
+    try {
+      const pushed = await pushProduct(key, { quiet: true });
+      if (!pushed.ok) return { shared: false, error: pushed.error || "The version couldn't be shared first." };
+
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (bytes.length > MAX_FILE_BYTES) {
+        return { shared: false, error: `The file is ${(bytes.length / 1048576).toFixed(1)} MB; the shared history stores files up to ${MAX_FILE_BYTES / 1048576} MB.` };
+      }
+      const b64 = bytesToBase64(bytes);
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      const total = Math.max(1, Math.ceil(b64.length / CHUNK_CHARS));
+      for (let i = 0; i < total; i++) {
+        const r = await fileApi("POST", "", { id, index: i, total, name: fileName, size: bytes.length, data: b64.slice(i * CHUNK_CHARS, (i + 1) * CHUNK_CHARS) });
+        if (r.status !== 200) throw new Error((r.json && r.json.error) || `upload failed (HTTP ${r.status})`);
+      }
+      const r = await api("POST", "", { key, attach: { entryId, file: { id, name: fileName, size: bytes.length, chunks: total } } });
+      if (r.status !== 200 || !r.json || !r.json.product) throw new Error((r.json && r.json.error) || `HTTP ${r.status}`);
+      mergeRemote(r.json.product);
+      status.lastSync = Date.now();
+      emit();
+      return { shared: true };
+    } catch (e) {
+      return { shared: false, error: e.message };
+    }
+  }
+
+  // Downloads a stored file; returns a Blob.
+  async function downloadStored(file) {
+    const resp = await fetch("/api/files?id=" + encodeURIComponent(file.id), { credentials: "same-origin", cache: "no-store" });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { msg = (await resp.json()).error || msg; } catch (e) { /* not JSON */ }
+      throw new Error(msg);
+    }
+    return resp.blob();
+  }
+
   global.PBShared = {
     status,
     get dataVersion() { return dataVersion; },
@@ -258,6 +326,9 @@
     pull,
     pushProduct,
     removeProduct,
+    recordGeneration,
+    downloadStored,
+    entryId: idOf,
     localOnlyProducts,
     uploadLocalOnly,
     onChange(fn) { listeners.push(fn); },

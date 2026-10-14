@@ -606,6 +606,36 @@
     $("#f_version").value = PBStorage.suggestNextVersion($("#f_version").value);
   });
 
+  // Every generated brief is written into the history: the version it was
+  // generated from (reusing the newest save if nothing changed), plus - when
+  // the shared database is connected - the file itself, so anyone on the team
+  // can download it later exactly as it was.
+  async function recordGeneration(blob, filename, statusSel, baseMsg) {
+    const b = B();
+    const typed = ($("#f_savedBy").value || "").trim();
+    if (typed) PBShared.setName(typed);
+    b.savedBy = PBShared.getName();
+    b.productKey = b.productKey || PBStorage.defaultProductKey(b);
+    let saved;
+    try {
+      saved = PBStorage.saveIfChanged(b, b.productKey);
+    } catch (err) {
+      setStatus(statusSel, `${baseMsg} Couldn't add it to the history: ${err.message}`, "error");
+      return;
+    }
+    renderProductList("#versionList");
+    setStatus(statusSel, `${baseMsg} Adding it to the history…`, "ok");
+    const result = await PBShared.recordGeneration(saved.product.key, PBShared.entryId(saved.entry), blob, filename);
+    let tail;
+    if (result.shared) tail = "Saved to the shared history with this file - anyone on the team can download it again from Product History.";
+    else if (PBShared.status.state === "local") tail = "Saved to this browser's history only - the shared history isn't connected yet, so the file itself isn't kept.";
+    else tail = `Saved here, but the shared history couldn't store the file${result.error ? " (" + result.error + ")" : ""}. Download it again later and it will retry.`;
+    setStatus(statusSel, `${baseMsg} ${tail}`, result.shared || PBShared.status.state === "local" ? "ok" : "error");
+    renderProductList("#versionList");
+    refreshVisibleLists();
+    renderSharedStatus();
+  }
+
   $("#btnExportDocx").addEventListener("click", async () => {
     syncFormToState();
     setStatus("#exportStatus", "Generating .docx…");
@@ -613,7 +643,9 @@
       const blob = await PBDocx.generateDocx(B());
       const filename = `Product Brief_${filenameSafe(B().articleNo) || "SKU"}_v${B().version || "1.0"}.docx`;
       PBDocx.downloadBlob(blob, filename);
-      setStatus("#exportStatus", `Downloaded ${filename}. Open it in Google Drive (right-click > Open with > Google Docs) to continue editing there.`, "ok");
+      const base = `Downloaded ${filename}. Open it in Google Drive (right-click > Open with > Google Docs) to continue editing there.`;
+      setStatus("#exportStatus", base, "ok");
+      await recordGeneration(blob, filename, "#exportStatus", base);
     } catch (err) {
       console.error(err);
       setStatus("#exportStatus", "Export failed: " + err.message, "error");
@@ -657,9 +689,14 @@
   function renderProductList(sel) {
     const wrap = $(sel);
     wrap.innerHTML = "";
-    const products = PBStorage.listProducts();
+    let products = PBStorage.listProducts();
+    const q = sel === "#historyList" && $("#historySearch") ? $("#historySearch").value.trim().toLowerCase() : "";
+    if (q) {
+      products = products.filter((p) => [p.key, p.item, p.articleNo, ...p.history.map((h) => `${h.savedBy || ""} ${h.label || ""} v${h.version || ""}`)]
+        .join(" ").toLowerCase().includes(q));
+    }
     if (!products.length) {
-      wrap.innerHTML = '<p class="hint">No saved products yet.</p>';
+      wrap.innerHTML = `<p class="hint">${q ? "No products match that search." : "No saved products yet."}</p>`;
       return;
     }
     products.forEach((product) => {
@@ -681,7 +718,7 @@
             <button class="btn btn-small" data-del="${encodeURIComponent(product.key)}">Delete</button>
           </div>
         </div>
-        ${product.history.length > 1 ? `<button type="button" class="toggle-history" data-toggle="${encodeURIComponent(product.key)}">View history (${product.history.length})</button>` : ""}
+        <button type="button" class="toggle-history" data-toggle="${encodeURIComponent(product.key)}">View history &amp; downloads (${product.history.length})</button>
         <div class="product-history-list hidden" data-history-for="${encodeURIComponent(product.key)}"></div>
       `;
       wrap.appendChild(card);
@@ -722,9 +759,64 @@
         const isHidden = historyWrap.classList.contains("hidden");
         if (isHidden) renderHistoryList(historyWrap, key);
         historyWrap.classList.toggle("hidden", !isHidden);
-        btn.textContent = isHidden ? "Hide history" : `View history (${PBStorage.load(key).history.length})`;
+        btn.textContent = isHidden ? "Hide history" : `View history & downloads (${PBStorage.load(key).history.length})`;
       })
     );
+  }
+
+  // A small message shown at the top of a product's history panel.
+  function historyNotice(container, text, kind) {
+    let el = container.querySelector(".history-notice");
+    if (!el) {
+      el = document.createElement("div");
+      container.insertBefore(el, container.firstChild);
+    }
+    el.className = "history-notice status " + (kind || "");
+    el.textContent = text;
+  }
+
+  // Downloads a previous version. If its generated .docx is stored in the
+  // shared history that exact file is used; otherwise the brief is re-created
+  // from the version's saved text (pictures come back only for instructions
+  // unchanged on this computer's current copy).
+  async function downloadFromHistory(container, key, entryId, wantAll) {
+    const product = PBStorage.load(key);
+    const entry = product && product.history.find((e) => PBShared.entryId(e) === entryId);
+    if (!entry) throw new Error("That version isn't available any more.");
+    const version = entry.version || "1.0";
+    const copy = JSON.parse(JSON.stringify(entry.brief));
+    PBStorage.carryImages(copy, product.brief);
+    const sku = filenameSafe(copy.articleNo) || "SKU";
+
+    let docBlob = null, docName = `Product Brief_${sku}_v${version}.docx`, recreated = false, note = "";
+    if (entry.file) {
+      try {
+        docBlob = await PBShared.downloadStored(entry.file);
+        docName = entry.file.name;
+      } catch (err) {
+        note = ` (The stored file couldn't be fetched - ${err.message} - so it was re-created from the saved text.)`;
+      }
+    }
+    if (!docBlob) {
+      docBlob = await PBDocx.generateDocx(copy);
+      recreated = true;
+    }
+
+    if (!wantAll) {
+      PBDocx.downloadBlob(docBlob, docName);
+    } else {
+      const zip = new JSZip();
+      zip.file(docName, docBlob);
+      zip.file(`Pre-inspection Briefing Form_${sku}.xlsx`, PBXlsxGen.generatePreInspectionXlsx(copy));
+      zip.file(`Pre-QC Check_${sku}.xlsx`, PBXlsxGen.generatePreQCXlsx(copy));
+      zip.file(`Marketing Guide Sheet_${sku}.xlsx`, PBXlsxGen.generateMarketingXlsx(copy));
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      PBDocx.downloadBlob(zipBlob, `${sku}_v${version}_all documents.zip`.replace(/\s+/g, " "));
+    }
+    const what = wantAll ? "all documents" : docName;
+    historyNotice(container, recreated
+      ? `Downloaded ${what}, re-created from the saved text of v${version} (the spreadsheets always are). Product pictures are only included where this computer still has them.${note}`
+      : `Downloaded ${what} - the brief is the exact file that was generated for v${version}.${note}`, "ok");
   }
 
   function renderHistoryList(container, key) {
@@ -736,11 +828,31 @@
       row.className = "product-history-row";
       const date = new Date(entry.savedAt).toLocaleString();
       row.innerHTML = `
-        <span>v${escapeHtml(entry.version || "1.0")} ${entry.label ? "· " + escapeHtml(entry.label) : ""} — ${date}${entry.savedBy ? " · " + escapeHtml(entry.savedBy) : ""}</span>
-        <span class="actions"><button class="btn btn-small" data-restore="${entry.savedAt}">Restore</button></span>
+        <span>v${escapeHtml(entry.version || "1.0")} ${entry.label ? "· " + escapeHtml(entry.label) : ""} — ${date}${entry.savedBy ? " · " + escapeHtml(entry.savedBy) : ""}${entry.file ? ' · <span class="file-tag" title="The generated .docx, with its pictures, is stored in the shared history">📄 file saved</span>' : ""}</span>
+        <span class="actions">
+          <button class="btn btn-small" data-dl-brief="${escapeHtml(PBShared.entryId(entry))}" title="${entry.file ? "Download the brief exactly as it was generated" : "Re-create the brief from this version's saved text (pictures only if they're on this computer)"}">⬇ Brief</button>
+          <button class="btn btn-small" data-dl-all="${escapeHtml(PBShared.entryId(entry))}" title="Brief + Pre-inspection + Pre-QC + Marketing Guide as one .zip">⬇ All documents</button>
+          <button class="btn btn-small" data-restore="${entry.savedAt}">Restore</button>
+        </span>
       `;
       container.appendChild(row);
     });
+    container.querySelectorAll("[data-dl-brief], [data-dl-all]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const all = btn.hasAttribute("data-dl-all");
+        const entryId = all ? btn.dataset.dlAll : btn.dataset.dlBrief;
+        const label = btn.textContent;
+        btn.disabled = true; btn.textContent = "Preparing…";
+        try {
+          await downloadFromHistory(container, key, entryId, all);
+        } catch (err) {
+          console.error(err);
+          historyNotice(container, "Couldn't prepare that download: " + err.message, "error");
+        } finally {
+          btn.disabled = false; btn.textContent = label;
+        }
+      })
+    );
     container.querySelectorAll("[data-restore]").forEach((btn) =>
       btn.addEventListener("click", () => {
         const restored = PBStorage.restoreHistoryEntry(key, Number(btn.dataset.restore));
@@ -792,7 +904,9 @@
       zip.file(`Marketing Guide Sheet_${sku}.xlsx`, PBXlsxGen.generateMarketingXlsx(b));
       const zipBlob = await zip.generateAsync({ type: "blob" });
       PBDocx.downloadBlob(zipBlob, `${sku}_all documents.zip`.replace(/\s+/g, " "));
-      setStatus("#downstreamStatus", "Downloaded all 4 documents as one .zip.", "ok");
+      const base = "Downloaded all 4 documents as one .zip.";
+      setStatus("#downstreamStatus", base, "ok");
+      await recordGeneration(briefBlob, `Product Brief_${sku}_v${b.version || "1.0"}.docx`, "#downstreamStatus", base);
     } catch (err) {
       console.error(err);
       setStatus("#downstreamStatus", "Export failed: " + err.message, "error");
@@ -830,7 +944,7 @@
       text = "Syncing shared history…";
     } else if (st.state === "local") {
       dot += " dot-warn";
-      text = `<strong>This browser only.</strong> ${escapeHtml(st.message)} Setup steps are in the README.`;
+      text = `<strong>This browser only.</strong> ${escapeHtml(st.message)} Anything generated is only remembered on this computer until the shared database is connected.`;
     } else if (st.state === "error") {
       dot += " dot-err";
       text = escapeHtml(st.message);
@@ -842,7 +956,17 @@
     if (st.state === "connected" && pending) {
       buttons.push(`<button type="button" class="btn btn-small" data-shared-upload>Share ${pending} product${pending === 1 ? "" : "s"} saved only on this browser</button>`);
     }
-    const html = `<span class="msg"><span class="${dot}"></span>${text}</span>${buttons.join(" ")}`;
+    const help = st.state === "local" ? `
+      <details class="setup-help">
+        <summary>How to connect the shared database (one time, about 5 minutes)</summary>
+        <ol>
+          <li>In Vercel, open this project and go to the <strong>Storage</strong> tab. Create an <strong>Upstash Redis</strong> database (available through Vercel's Marketplace; it has a free plan) and connect it to this project for all environments.</li>
+          <li>Under <strong>Settings &rarr; Environment Variables</strong> you should now see <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> (or <code>UPSTASH_REDIS_REST_URL</code> and <code>UPSTASH_REDIS_REST_TOKEN</code>).</li>
+          <li>Go to <strong>Deployments</strong> and <strong>Redeploy</strong> (new variables only take effect on a fresh deployment).</li>
+          <li>Reload this page - this box turns green and everything generated from then on is shared, with its file.</li>
+        </ol>
+      </details>` : "";
+    const html = `<span class="msg"><span class="${dot}"></span>${text}</span>${buttons.join(" ")}${help}`;
     $$(".shared-status").forEach((el) => { el.innerHTML = html; });
   }
 
@@ -851,6 +975,8 @@
     if (!$("#panel-6").classList.contains("hidden")) renderProductList("#historyList");
     if (!$("#versionModal").classList.contains("hidden")) renderProductList("#versionModalList");
   }
+
+  $("#historySearch").addEventListener("input", () => renderProductList("#historyList"));
 
   let renderedDataVersion = -1;
   let renderedIsShared = false;

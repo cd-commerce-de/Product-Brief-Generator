@@ -258,3 +258,11 @@ code { background: #f0f1f3; padding: 1px 6px; border-radius: 4px; font-size: 12.
 .comp-item .pics button { position: absolute; top: -6px; right: -6px; border-radius: 50%; width: 18px; height: 18px; padding: 0; font-size: 11px; line-height: 16px; }
 .comp-item .pics input { flex: 1 1 180px; }
 .qc-photo-badge { font-size: 12px; color: var(--muted); white-space: nowrap; padding: 0 4px; }
+
+.shared-status .setup-help { flex: 1 1 100%; font-size: 13px; }
+.shared-status .setup-help summary { cursor: pointer; font-weight: 600; }
+.shared-status .setup-help ol { margin: 8px 0 0 18px; padding: 0; }
+.shared-status .setup-help li { margin-bottom: 6px; }
+.file-tag { color: var(--ok); font-weight: 600; white-space: nowrap; }
+.history-notice { margin: 0 0 8px; }
+.product-history-row .actions { display: flex; gap: 6px; flex-wrap: wrap; }

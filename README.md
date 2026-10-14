@@ -579,9 +579,10 @@ contact / phone / email, PO number, date.
   as small thumbnails, ≤ 360 px here). Pictures with a transparent background
   can arrive with a **black** background from Google's export — the SSC
   bar-end-plug picture does; insert such pictures flattened (JPEG).
-- Pictures are kept on the current brief only (saved history snapshots and
-  the shared team history hold the text, not the pictures); restoring an
-  older version reattaches pictures wherever the instruction is unchanged.
+- Pictures are kept on the current brief only (saved history snapshots hold
+  the text, not the pictures); the shared history keeps pictures by storing
+  the generated .docx. Restoring an older version reattaches pictures wherever
+  the instruction is unchanged.
 - Re-importing the sheet replaces components and QC rows with the sheet's
   version (Step 2 edits to those are overwritten) but never overwrites a
   Compliance text you edited.
@@ -670,8 +671,24 @@ browser), so nothing breaks if you skip this.
   on. Anything saved but not yet shared is never wiped by a sync.
 - **What each product keeps:** its latest 25 saves (the same limit as before).
   The "current" version of a product is its newest save.
-- **Not shared:** product photos (re-import the PD sheet to bring them back
-  on your own computer), the supplier directory, and remembered defaults.
+- **Every generated brief is recorded.** Downloading the Product Brief
+  (.docx), or "Download everything (.zip)", adds the version it was generated
+  from to the history (reusing the newest save if nothing changed, so
+  re-downloading doesn't create duplicates) and — when the shared database is
+  connected — stores **the generated .docx itself**, pictures included.
+- **Downloading a previous brief:** in **Product History** (or Step 4's saved
+  list) click **View history & downloads** on a product. Each version has
+  **⬇ Brief** and **⬇ All documents** (the brief plus the Pre-inspection,
+  Pre-QC and Marketing Guide spreadsheets as one .zip). Versions marked
+  "📄 file saved" download the *exact* file that was generated. For versions
+  without a stored file (generated before sharing was connected, or older than
+  the retention limit) the brief is **re-created from the version's saved text**
+  — identical wording and layout, but pictures only where this computer still
+  has them. The three spreadsheets are always re-created from the saved text
+  (they contain no pictures), so they come out the same.
+- There's a **search box** on Product History (product, SKU, version note or
+  person).
+- **Not shared:** the supplier directory and remembered defaults.
 
 ### How it works (for whoever maintains this)
 
@@ -689,8 +706,24 @@ browser), so nothing breaks if you skip this.
   by entry id (nothing is lost on either side) and retries failed uploads.
 - Each save is capped at 400 KB (real briefs are roughly 3-40 KB without
   photos).
+- **Generated files** (`api/files.js`): the .docx is split into ~600 KB base64
+  chunks (each database request stays under the free plan's 1 MB limit),
+  uploaded, then *attached* to its saved version through `api/store.js`. Until
+  it is attached a file's chunks carry a one-day expiry, so an abandoned or
+  failed upload cleans itself up. Limits: 3 MB per file, and only the newest
+  **10 files per product** are kept (older versions keep their text but lose
+  the stored file; their files are deleted from the database). A version that
+  is trimmed off the 25-version history, or a product that is deleted, takes
+  its files with it. Only .docx / .xlsx / .zip are accepted.
+- A multi-computer test (generate on one, download as another, byte-identical)
+  covers the whole path.
 
 ### Honest caveats
+
+- Storing files adds real usage to the database: a brief with pictures is
+  roughly 0.1-1 MB (the SSC brief is about 110 KB). With 10 files kept per
+  product that is a few MB per product at most. Check Upstash's current
+  free-plan storage and bandwidth limits against how many products you have.
 
 - This was built and tested against a **simulated** Upstash database, not a
   live one: the API, the sync logic across several simulated browsers
@@ -778,9 +811,11 @@ happens after the brief is drafted, not something a parser can extract.
   in each person's own browser (`localStorage`), exactly as it used to. It's
   still a drafting aid, not a replacement for the Product Brief Shared Drive
   / ClickUp Masterlist as the system of record.
-- **Product photos aren't shared.** They're large and come straight from the
-  PD sheet, so only the text of each saved version goes to the shared
-  history. Re-import the PD sheet to bring photos back on your computer.
+- **Pictures live in the generated file, not in the saved text.** The text of
+  each saved version never includes pictures (they're large). Shared history
+  keeps them by storing the generated .docx; a version without a stored file is
+  re-created from its text and has pictures only where that computer still
+  holds them (re-import the PD sheet to bring them back).
 - **Product Key matching is a heuristic, not guaranteed unique.** It
   defaults to the first SKU in Article No. (or the Item name if that's
   blank). If a PD sheet's SKU format changes between uploads for what's

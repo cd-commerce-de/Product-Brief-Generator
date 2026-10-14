@@ -11,7 +11,10 @@
  *   POST   /api/store           -> add history entries to a product
  *                                  body: { key, entries: [ {id, savedAt, version,
  *                                  label, savedBy, brief}, ... ] }
- *   DELETE /api/store?key=K     -> delete a product for everyone
+ *                                  or { key, attach: { entryId, file: {id, name,
+ *                                  size, chunks} } } to attach a generated file
+ *                                  (uploaded via api/files.js) to a saved version
+ *   DELETE /api/store?key=K     -> delete a product for everyone (and its files)
  *
  * WHY EVERY SAVE IS ITS OWN DATABASE ENTRY: if the whole product were stored
  * as one blob, two people saving at the same moment would each read the old
@@ -26,10 +29,14 @@
  *   pbg:o:<key>   zset   entry id scored by savedAt (to find the oldest to trim)
  *   pbg:updated   zset   product key scored by when it last gained a save
  *
- * Images are deliberately NOT stored: they're large, and they come straight
- * from the PD sheet, so re-importing the sheet brings them back.
+ * Pictures are NOT stored in the saved text of a version (they're large).
+ * The generated .docx itself - pictures included - is what keeps them: it is
+ * stored as chunks (api/files.js) and referenced from the version's `file`
+ * field. Only the newest MAX_FILES_PER_PRODUCT files per product are kept;
+ * older versions keep their text but lose the stored file.
  */
 const { checkAuth, deny } = require("./_auth");
+const { redisConfig, redis, send, readBody, FILE_ID_RE, MAX_FILE_BYTES, MAX_CHUNKS, mimeFor, fileKeys } = require("./_redis");
 
 const MAX_HISTORY = 25; // per product, same as the browser-only version
 const MAX_ENTRY_BYTES = 400 * 1024; // one saved version; keeps each request well under Upstash's size limit
@@ -38,42 +45,7 @@ const hashKey = (k) => `pbg:p:${k}`;
 const orderKey = (k) => `pbg:o:${k}`;
 const UPDATED_KEY = "pbg:updated";
 
-function redisConfig() {
-  // Vercel's Upstash integration has used both naming schemes.
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
-  return url && token ? { url: url.replace(/\/+$/, ""), token } : null;
-}
-
-async function redis(cfg, commands) {
-  const resp = await fetch(cfg.url + "/pipeline", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(commands),
-  });
-  if (!resp.ok) throw new Error(`Database request failed (HTTP ${resp.status})`);
-  const out = await resp.json();
-  return out.map((o) => {
-    if (o && o.error) throw new Error(o.error);
-    return o ? o.result : null;
-  });
-}
-
-function send(res, status, body) {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Cache-Control", "no-store");
-  res.end(JSON.stringify(body));
-}
-
-async function readBody(req) {
-  if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body || "{}");
-  const chunks = [];
-  for await (const c of req) chunks.push(c);
-  const text = Buffer.concat(chunks).toString("utf8");
-  return text ? JSON.parse(text) : {};
-}
+const MAX_FILES_PER_PRODUCT = 10;
 
 function stripImages(brief) {
   const copy = JSON.parse(JSON.stringify(brief || {}));
@@ -112,6 +84,52 @@ function buildRecord(key, flatHash, updatedAtScore) {
   };
 }
 
+// Links an uploaded file to a saved version, makes its chunks permanent, and
+// keeps only the newest MAX_FILES_PER_PRODUCT files for the product.
+async function attachFile(cfg, res, productKey, attach) {
+  const entryId = String(attach.entryId || "");
+  const f = attach.file || {};
+  const file = {
+    id: String(f.id || ""), name: String(f.name || "").slice(0, 200),
+    size: Number(f.size), chunks: Number(f.chunks),
+  };
+  if (!productKey || !entryId || !FILE_ID_RE.test(file.id) || !mimeFor(file.name) ||
+      !Number.isInteger(file.chunks) || file.chunks < 1 || file.chunks > MAX_CHUNKS || !(file.size > 0 && file.size <= MAX_FILE_BYTES)) {
+    return send(res, 400, { configured: true, error: "Bad file details." });
+  }
+  const [raw, metaCheck] = await redis(cfg, [["HGET", hashKey(productKey), entryId], ["GET", `pbg:f:${file.id}:m`]]);
+  if (!raw) return send(res, 404, { configured: true, error: "That saved version no longer exists." });
+  if (!metaCheck) return send(res, 400, { configured: true, error: "The file upload is missing or has expired." });
+
+  const entry = JSON.parse(raw);
+  const cmds = [];
+  if (entry.file && entry.file.id !== file.id) fileKeys(entry.file).forEach((k) => cmds.push(["DEL", k]));
+  entry.file = { ...file, mime: mimeFor(file.name), generatedAt: Date.now() };
+  cmds.push(["HSET", hashKey(productKey), entryId, JSON.stringify(entry)]);
+  fileKeys(file).forEach((k) => cmds.push(["PERSIST", k]));
+  cmds.push(["ZADD", UPDATED_KEY, "GT", Date.now(), productKey]);
+  await redis(cfg, cmds);
+
+  // Retention: keep the newest few files; older versions keep their text only.
+  const [flat] = await redis(cfg, [["HGETALL", hashKey(productKey)]]);
+  const entries = [];
+  for (let i = 0; i < (flat || []).length; i += 2) {
+    try { entries.push(JSON.parse(flat[i + 1])); } catch (e) { /* skip */ }
+  }
+  const withFile = entries.filter((e) => e.file).sort((a, b) => a.savedAt - b.savedAt);
+  const drops = [];
+  while (withFile.length > MAX_FILES_PER_PRODUCT) {
+    const old = withFile.shift();
+    fileKeys(old.file).forEach((k) => drops.push(["DEL", k]));
+    const stripped = { ...old }; delete stripped.file;
+    drops.push(["HSET", hashKey(productKey), old.id, JSON.stringify(stripped)]);
+  }
+  if (drops.length) await redis(cfg, drops);
+
+  const [flat2, score] = await redis(cfg, [["HGETALL", hashKey(productKey)], ["ZSCORE", UPDATED_KEY, productKey]]);
+  return send(res, 200, { configured: true, product: buildRecord(productKey, flat2, score) });
+}
+
 module.exports = async (req, res) => {
   if (!checkAuth(req)) return deny(res);
 
@@ -143,13 +161,19 @@ module.exports = async (req, res) => {
 
     if (req.method === "DELETE") {
       if (!key) return send(res, 400, { configured: true, error: "Missing key" });
-      await redis(cfg, [["DEL", hashKey(key)], ["DEL", orderKey(key)], ["ZREM", UPDATED_KEY, key]]);
+      const [flat] = await redis(cfg, [["HGETALL", hashKey(key)]]);
+      const fileDels = [];
+      for (let i = 1; i < (flat || []).length; i += 2) {
+        try { const e = JSON.parse(flat[i]); if (e.file) fileKeys(e.file).forEach((k) => fileDels.push(["DEL", k])); } catch (e) { /* skip */ }
+      }
+      await redis(cfg, [...fileDels, ["DEL", hashKey(key)], ["DEL", orderKey(key)], ["ZREM", UPDATED_KEY, key]]);
       return send(res, 200, { configured: true, deleted: key });
     }
 
     if (req.method === "POST") {
       const body = await readBody(req);
       const productKey = typeof body.key === "string" ? body.key.trim() : "";
+      if (body.attach) return attachFile(cfg, res, productKey, body.attach);
       const incoming = Array.isArray(body.entries) ? body.entries : [];
       if (!productKey || productKey.length > 200) {
         return send(res, 400, { configured: true, error: "A product key (max 200 characters) is required." });
@@ -169,6 +193,7 @@ module.exports = async (req, res) => {
           label: String(e.label || "").slice(0, 200),
           savedBy: String(e.savedBy || "").slice(0, 80),
           brief: stripImages(e.brief),
+          // `file` is only ever set through the attach step above
         };
         const json = JSON.stringify(entry);
         if (json.length > MAX_ENTRY_BYTES) { tooBig++; continue; }
@@ -200,6 +225,10 @@ module.exports = async (req, res) => {
       // 3) Drop the oldest beyond the limit, then read the result back.
       const step3 = [];
       if (trimIds.length) {
+        const [trimmed] = await redis(cfg, [["HMGET", hashKey(productKey), ...trimIds]]);
+        (trimmed || []).forEach((raw) => {
+          try { const e = JSON.parse(raw); if (e && e.file) fileKeys(e.file).forEach((k) => step3.push(["DEL", k])); } catch (e) { /* skip */ }
+        });
         step3.push(["ZREM", orderKey(productKey), ...trimIds]);
         step3.push(["HDEL", hashKey(productKey), ...trimIds]);
       }
